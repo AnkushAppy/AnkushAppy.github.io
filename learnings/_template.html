@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOPIC_TITLE</title>
+  <style>
+    /*
+      Learning canvas template
+      ────────────────────────
+      Each topic gets its own self-contained HTML file with inline styles/scripts.
+      Use <canvas> for charts, diagrams, or interactive visualizations.
+    */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: #0a0d12;
+      color: #e8ecf4;
+      padding: 32px;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; }
+    .subtitle { color: #8b95a8; font-size: 0.875rem; margin-bottom: 24px; }
+    .content { font-size: 0.9rem; color: #8b95a8; line-height: 1.6; }
+    canvas { display: block; margin-top: 24px; max-width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>TOPIC_TITLE</h1>
+  <p class="subtitle">SHORT_DESCRIPTION</p>
+
+  <div class="content">
+    <p>Your notes, diagrams, and canvas visualizations go here.</p>
+  </div>
+
+  <!-- Example canvas -->
+  <canvas id="viz" width="600" height="200"></canvas>
+
+  <script>
+    const canvas = document.getElementById("viz");
+    const ctx = canvas.getContext("2d");
+    // Add your visualization logic here
+  </script>
+</body>
+</html>

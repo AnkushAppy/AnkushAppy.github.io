@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Ankush — Principal Software Engineer building AI systems at Apollo 24|7">
+  <title>Ankush | Principal Software Engineer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav" aria-label="Primary">
+      <a href="#" class="nav-brand">Ankush</a>
+      <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links">
+        <li><a href="#about">About</a></li>
+        <li><a href="#experience">Experience</a></li>
+        <li><a href="#skills">Skills</a></li>
+        <li><a href="#learnings">Learnings</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section id="about" class="hero">
+      <div class="container">
+        <p class="hero-eyebrow">Principal Software Engineer</p>
+        <h1 class="hero-title">Building AI systems that scale in healthcare</h1>
+        <p class="hero-subtitle">
+          Architecting clinical intelligence, multi-agent chatbots, and RAG pipelines at
+          <strong>Apollo 24|7</strong>. 10+ years shipping production backends, ML systems, and data platforms.
+        </p>
+        <div class="hero-meta">
+          <span class="meta-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            Bengaluru, India
+          </span>
+          <span class="meta-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+            Full-time · On-site
+          </span>
+        </div>
+        <div class="hero-actions">
+          <a href="#experience" class="btn btn-primary">View experience</a>
+          <a href="#learnings" class="btn btn-secondary">Explore learnings</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Experience -->
+    <section id="experience" class="section experience-section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Experience</h2>
+          <p>A decade of building backends, ML pipelines, and AI products from early-stage startups to enterprise scale.</p>
+        </div>
+
+        <div class="timeline">
+          <!-- Apollo 24|7 -->
+          <article class="timeline-item featured">
+            <div class="timeline-marker">
+              <div class="company-logo apollo">
+                <img src="assets/img/logos/apollo.png" alt="Apollo 24|7 logo" width="56" height="56">
+              </div>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-header">
+                <div>
+                  <h3>Principal Software Engineer</h3>
+                  <p class="company">Apollo 24|7 · Full-time</p>
+                </div>
+                <time datetime="2020-04">Apr 2020 – Present · 6 yrs 3 mos</time>
+              </div>
+              <p class="location">Bengaluru, Karnataka, India · On-site</p>
+
+              <div class="role-block">
+                <h4>AskApollo — AI Clinical Chatbot</h4>
+                <ul>
+                  <li>Architected and deployed AskApollo, an AI clinical chatbot with complex orchestration and tool-calling workflows, handling <strong>4,000–5,000 chats/day</strong>.</li>
+                  <li>Expanded to multimodal inputs: voice-to-text, PDF parsing, and image processing. Engineered dialogue to deliver direct answers, dynamic follow-ups, and recommendations for doctors, lab tests, and medical products.</li>
+                  <li>Built an AI suggestions service across <strong>20+ entry points</strong> on the Apollo247 app, scaling to <strong>1–2 Lakh (100K–200K) API calls daily</strong>.</li>
+                  <li>Orchestrated integration of <strong>5+ domain-specific chatbots</strong> with seamless automated handoff for intent routing and context preservation.</li>
+                  <li>Incorporated advanced RAG pipelines (semantic search) and evaluation frameworks for response quality, safety, and hallucination guardrails.</li>
+                  <li>Optimized LLM inference with vLLM, achieving <strong>4× latency reduction</strong>. Prototyping autonomous workflows with DSPy.</li>
+                  <li>Developed <strong>Sympai</strong>, a multi-agent symptom checker powered by embeddings and semantic search, migrating from legacy Neo4j knowledge graph and NLP models.</li>
+                </ul>
+                <div class="stack-tags">
+                  <span>vLLM</span><span>LangGraph</span><span>Qwen/OpenAI</span><span>RAG</span><span>Multi-agent</span>
+                  <span>Golang</span><span>Python</span><span>Neo4j</span><span>MongoDB</span><span>Postgres</span>
+                  <span>BigQuery</span><span>Pub/Sub</span><span>Redis</span><span>GCP</span><span>ELK</span>
+                  <span>REST</span><span>GraphQL</span>
+                </div>
+              </div>
+
+              <div class="role-block">
+                <h4>CIE — Clinical Intelligence Engine</h4>
+                <ul>
+                  <li>Built symptom and disease prediction models by parsing real Apollo 247 patient data.</li>
+                  <li>Engineered pipelines for parsing, NER, aggregation, and modeling on patient data.</li>
+                  <li>Built pipeline to load parsed patient data into Neo4j knowledge graph.</li>
+                  <li>Developed internal tools for doctors to build and maintain the knowledge base.</li>
+                </ul>
+                <div class="stack-tags">
+                  <span>Golang</span><span>Python</span><span>MongoDB</span><span>Postgres</span><span>Neo4j</span>
+                  <span>BigQuery</span><span>Pub/Sub</span><span>Redis</span>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Tenzai Systems -->
+          <article class="timeline-item">
+            <div class="timeline-marker">
+              <div class="company-logo tenzai">
+                <img src="assets/img/logos/tenzai.png" alt="Tenzai Systems logo" width="56" height="56">
+              </div>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-header">
+                <div>
+                  <h3>Senior Software Engineer</h3>
+                  <p class="company">Tenzai Systems</p>
+                </div>
+                <time datetime="2019-06">Jun 2019 – Mar 2020 · 10 mos</time>
+              </div>
+              <p class="location">Bengaluru Area, India</p>
+              <p class="role-summary">Early-stage startup. Founding employee and backend engineer building enterprise virtual assistants.</p>
+              <ul>
+                <li>Scraped news, stocks, and market data periodically into MongoDB; trained models, tagged news, calculated statistics and insights; built chatbot with spaCy/NLTK, Socket.io, and Flask REST APIs; cached charts on Redis.</li>
+                <li>Scraped financial concall transcripts via Textract; extracted facts, Q&A, and names; built document search with Elasticsearch and Flask APIs.</li>
+                <li>Built Text-to-SQL parser/processor using spaCy for NER and POS tagging with pandas and numpy.</li>
+              </ul>
+              <div class="stack-tags">
+                <span>Python</span><span>Flask</span><span>Celery</span><span>Scrapy</span><span>MongoDB</span>
+                <span>Redis</span><span>Elasticsearch</span><span>Docker</span><span>GCP</span><span>spaCy</span>
+                <span>NLTK</span><span>PyTorch</span><span>Socket.io</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- Marlabs -->
+          <article class="timeline-item">
+            <div class="timeline-marker">
+              <div class="company-logo marlabs">
+                <img src="assets/img/logos/marlabs.png" alt="Marlabs Inc. logo" width="56" height="56">
+              </div>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-header">
+                <div>
+                  <h3>Sr. Software Engineer</h3>
+                  <p class="company">Marlabs Inc.</p>
+                </div>
+                <time datetime="2017-03">Mar 2017 – May 2019 · 2 yrs 3 mos</time>
+              </div>
+              <p class="location">Bengaluru, Karnataka, India</p>
+              <ul>
+                <li>Designed and implemented backend REST APIs from scratch in Django (DRF) for mAdvisor.</li>
+                <li>Owned all backend activities: servers, databases, AWS, and documentation.</li>
+                <li>Dockerized system (API, databases, Hadoop); automated deployment.</li>
+                <li>Exploratory data analysis; legacy R-to-Python conversion; ML enthusiast.</li>
+              </ul>
+              <div class="stack-tags">
+                <span>Python</span><span>Django DRF</span><span>Celery</span><span>Redis</span><span>MySQL</span>
+                <span>AWS</span><span>Docker</span><span>Nginx</span><span>Airflow</span><span>Elasticsearch</span>
+                <span>PowerBI</span><span>Pandas</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- Loktra -->
+          <article class="timeline-item">
+            <div class="timeline-marker">
+              <div class="company-logo loktra">
+                <img src="assets/img/logos/loktra.png" alt="Loktra logo" width="56" height="56">
+              </div>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-header">
+                <div>
+                  <h3>Software Engineer</h3>
+                  <p class="company">Loktra</p>
+                </div>
+                <time datetime="2016-07">Jul 2016 – Feb 2017 · 8 mos</time>
+              </div>
+              <p class="location">Bengaluru Area, India</p>
+              <ul>
+                <li>Early employee involved in concept and design of key features.</li>
+                <li>Designed and implemented Flask (Python) backend; owned servers, databases, AWS, and documentation.</li>
+                <li>Automated deployment with Fabric, Jenkins, and Docker.</li>
+                <li>Implemented UI features using Google/OSM maps and APIs.</li>
+              </ul>
+            </div>
+          </article>
+
+          <!-- Dolcera -->
+          <article class="timeline-item">
+            <div class="timeline-marker">
+              <div class="company-logo dolcera">
+                <img src="assets/img/logos/dolcera.png" alt="Dolcera logo" width="56" height="56">
+              </div>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-header">
+                <div>
+                  <h3>Analyst</h3>
+                  <p class="company">Dolcera</p>
+                </div>
+                <time datetime="2014-07">Jul 2014 – Jun 2016 · 2 yrs</time>
+              </div>
+              <p class="location">Greater Hyderabad Area, India</p>
+              <ul>
+                <li>Landscape analysis; validity/invalidity patent searches.</li>
+                <li>Managed patent portfolios for multiple companies.</li>
+                <li>Experience with Micropat, WIPO, JP, EPSpace, Delphion, and non-patent databases.</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Skills -->
+    <section id="skills" class="section skills-section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Core Expertise</h2>
+          <p>Spanning AI/ML systems, backend engineering, and data infrastructure.</p>
+        </div>
+        <div class="skills-grid">
+          <div class="skill-card">
+            <h3>AI &amp; ML</h3>
+            <p>LLMs, RAG, multi-agent systems, vLLM, DSPy, embeddings, semantic search, evaluation frameworks, NLP/NER</p>
+          </div>
+          <div class="skill-card">
+            <h3>Backend &amp; APIs</h3>
+            <p>Golang, Python, Flask, Django DRF, REST, GraphQL, microservices, Celery, Socket.io</p>
+          </div>
+          <div class="skill-card">
+            <h3>Data &amp; Infra</h3>
+            <p>Neo4j, MongoDB, Postgres, BigQuery, Redis, Elasticsearch, Pub/Sub, GCP, AWS, Docker, ELK</p>
+          </div>
+          <div class="skill-card">
+            <h3>Engineering</h3>
+            <p>System design, orchestration, tool-calling workflows, knowledge graphs, data pipelines, benchmarking</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Learnings -->
+    <section id="learnings" class="section learnings-section">
+      <div class="container learnings-layout">
+        <aside class="learnings-toc" aria-label="Learnings table of contents">
+          <div class="toc-sticky">
+            <h2>Learnings</h2>
+            <p class="toc-desc">Notes, explorations, and visual deep-dives. New topics appear here as they're added.</p>
+            <nav>
+              <ol id="learnings-toc-list" class="toc-list">
+                <!-- Topics are auto-populated from learning articles below -->
+              </ol>
+            </nav>
+            <p class="toc-hint">Copy <code>learnings/_template.html</code> to add new topics.</p>
+          </div>
+        </aside>
+
+        <div class="learnings-content">
+          <!--
+            ADD NEW LEARNING TOPICS HERE
+            Copy learnings/_template.html, save as learnings/your-topic.html,
+            then add an article block below following this pattern.
+          -->
+
+          <article id="topic-rag-evals" class="learning-topic" data-title="RAG Evaluation Frameworks">
+            <header class="learning-header">
+              <span class="learning-tag">AI / RAG</span>
+              <h3>RAG Evaluation Frameworks</h3>
+              <p>Benchmarking retrieval quality, hallucination guardrails, and response safety in production clinical chatbots.</p>
+            </header>
+            <div class="learning-canvas" data-src="learnings/rag-evals.html">
+              <iframe src="learnings/rag-evals.html" title="RAG Evaluation Frameworks visualization" loading="lazy"></iframe>
+            </div>
+          </article>
+
+          <article id="topic-vllm-optimization" class="learning-topic" data-title="vLLM Inference Optimization">
+            <header class="learning-header">
+              <span class="learning-tag">LLM / Infra</span>
+              <h3>vLLM Inference Optimization</h3>
+              <p>Parameter tuning and benchmarking that achieved 4× latency reduction for high-throughput chat serving.</p>
+            </header>
+            <div class="learning-canvas" data-src="learnings/vllm-optimization.html">
+              <iframe src="learnings/vllm-optimization.html" title="vLLM Optimization visualization" loading="lazy"></iframe>
+            </div>
+          </article>
+
+          <div class="learnings-empty" id="learnings-empty" hidden>
+            <p>No learning topics yet. Add your first topic to get started.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; <span id="year"></span> Ankush · <a href="https://github.com/AnkushAppy">github.com/AnkushAppy</a></p>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
