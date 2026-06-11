@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Ankush — a learner who builds visual deep-dives into AI, systems, and ideas worth understanding.">
-  <title>Ankush | Learning Page</title>
+  <meta name="description" content="Ankush — visual deep-dives and learnings on AI, systems, and ideas worth understanding.">
+  <title>Ankush | Learnings</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -18,148 +18,54 @@
         <span></span><span></span><span></span>
       </button>
       <ul class="nav-links">
-        <li><a href="#about">Who I am</a></li>
-        <li><a href="#what-i-learn">What I learn</a></li>
-        <li><a href="#risks">Risks I take</a></li>
-        <li><a href="#topics">Topics</a></li>
+        <li><a href="#learnings">Learnings</a></li>
       </ul>
     </nav>
   </header>
 
   <main>
-    <section id="about" class="hero">
+    <section class="hero hero--compact">
       <div class="container">
-        <p class="hero-eyebrow">Learning page</p>
-        <h1 class="hero-title">I learn by building things I can see</h1>
-        <p class="hero-subtitle">
-          Not a résumé. Not a portfolio of employers. This is a running log of what I'm curious about,
-          what I'm willing to bet on before it's proven, and the visual explanations I make to understand it.
-        </p>
-        <div class="hero-pillars">
-          <div class="pillar">
-            <span class="pillar-label">Orientation</span>
-            <span class="pillar-value">Depth over breadth</span>
-          </div>
-          <div class="pillar">
-            <span class="pillar-label">Method</span>
-            <span class="pillar-value">Prototype → benchmark → explain</span>
-          </div>
-          <div class="pillar">
-            <span class="pillar-label">Output</span>
-            <span class="pillar-value">Canvas notes &amp; deep-dives</span>
-          </div>
-        </div>
+        <p class="hero-eyebrow">Learnings</p>
+        <h1 class="hero-title">Visual deep-dives on things I'm figuring out</h1>
         <div class="hero-actions">
-          <a href="#topics" class="btn btn-primary">Browse topics</a>
-          <a href="#what-i-learn" class="btn btn-secondary">What I learn</a>
+          <a href="#learnings" class="btn btn-primary">Browse topics</a>
         </div>
       </div>
     </section>
 
-    <section id="what-i-learn" class="section learn-about-section">
-      <div class="container">
-        <div class="section-header">
-          <h2>What I learn</h2>
-          <p>Topics I keep returning to — not because they're trendy, but because understanding them changes how I think.</p>
-        </div>
-        <div class="interest-grid">
-          <article class="interest-card">
-            <span class="interest-icon">◎</span>
-            <h3>How intelligence is built</h3>
-            <p>LLMs, agents, tool-calling, multi-step reasoning. I'm less interested in demos and more in orchestration — how systems decide, route, and recover.</p>
-            <ul class="interest-tags">
-              <li>LangGraph</li>
-              <li>Multi-agent</li>
-              <li>DSPy</li>
-            </ul>
-          </article>
-          <article class="interest-card">
-            <span class="interest-icon">◈</span>
-            <h3>How retrieval actually works</h3>
-            <p>RAG isn't "embed and pray." I learn by tracing the full path — chunking, indexing, HNSW layers, eval suites, hallucination guardrails.</p>
-            <ul class="interest-tags">
-              <li>RAG</li>
-              <li>HNSW</li>
-              <li>Evals</li>
-            </ul>
-          </article>
-          <article class="interest-card">
-            <span class="interest-icon">⬡</span>
-            <h3>How systems perform under load</h3>
-            <p>Inference latency, throughput, parameter tuning. I benchmark before I commit — vLLM, batching strategies, the gap between "works locally" and "works at scale."</p>
-            <ul class="interest-tags">
-              <li>vLLM</li>
-              <li>Benchmarking</li>
-              <li>Infra</li>
-            </ul>
-          </article>
-          <article class="interest-card">
-            <span class="interest-icon">◇</span>
-            <h3>How knowledge is structured</h3>
-            <p>Knowledge graphs, embeddings, semantic search. Moving from rigid schemas to flexible retrieval — and knowing when each approach breaks.</p>
-            <ul class="interest-tags">
-              <li>Neo4j</li>
-              <li>Embeddings</li>
-              <li>Graphs</li>
-            </ul>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section id="risks" class="section risks-section">
-      <div class="container">
-        <div class="section-header">
-          <h2>Risks I take</h2>
-          <p>Learning only happens at the edge of what you already know. These are the bets I'm comfortable making.</p>
-        </div>
-        <div class="risks-list">
-          <article class="risk-item">
-            <div class="risk-marker">01</div>
-            <div class="risk-body">
-              <h3>Prototype before the playbook exists</h3>
-              <p>I try frameworks and ideas while they're still rough — DSPy for autonomous workflows, new agent patterns, experimental eval pipelines. I'd rather break something in a notebook than ship blind faith to production.</p>
-            </div>
-          </article>
-          <article class="risk-item">
-            <div class="risk-marker">02</div>
-            <div class="risk-body">
-              <h3>Replace what already works</h3>
-              <p>Migrating legacy systems — Neo4j knowledge graphs to embedding-based search, old NLP pipelines to LLM orchestration. The risk is downtime and regression; the reward is a system you actually understand.</p>
-            </div>
-          </article>
-          <article class="risk-item">
-            <div class="risk-marker">03</div>
-            <div class="risk-body">
-              <h3>Benchmark, then decide</h3>
-              <p>I don't pick tools by hype. I run latency sweeps, retrieval@k evals, and load tests — then commit. The risk is time spent measuring; the alternative is guessing at scale.</p>
-            </div>
-          </article>
-          <article class="risk-item">
-            <div class="risk-marker">04</div>
-            <div class="risk-body">
-              <h3>Explain it visually or I don't get it</h3>
-              <p>Every topic on this page has a canvas — animated pipelines, isometric graphs, before/after charts. If I can't draw the flow, I probably don't understand it yet.</p>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section id="topics" class="section learnings-section">
-      <div class="container learnings-layout">
-        <aside class="learnings-toc" aria-label="Topics table of contents">
-          <div class="toc-sticky">
+    <section id="learnings" class="section learnings-section">
+      <div class="container container--wide learnings-layout">
+        <nav class="learnings-toc" aria-label="Topics navigation">
+          <div class="toc-bar">
             <h2>Topics</h2>
-            <p class="toc-desc">Visual deep-dives. Click a topic to jump below — new ones get added as I learn.</p>
-            <nav>
-              <ol id="learnings-toc-list" class="toc-list"></ol>
-            </nav>
-            <p class="toc-hint">Copy <code>learnings/_template.html</code> to add a topic.</p>
+            <ol id="learnings-toc-list" class="toc-list toc-list--horizontal"></ol>
           </div>
-        </aside>
+        </nav>
 
         <div class="learnings-content">
+          <article id="topic-pg-connection-pool" class="learning-topic" data-title="PostgreSQL Connection Pool">
+            <header class="learning-header">
+              <span class="learning-tag">Databases / PostgreSQL</span>
+              <h3>PostgreSQL Connection Pool</h3>
+              <p>Load balancer → scaled app tier → connection pooling — watch queries route across app servers and PostgreSQL pool slots in real time.</p>
+            </header>
+            <div class="learning-canvas learning-canvas--wide">
+              <iframe src="learnings/pg-connection-pool.html" title="PostgreSQL connection pool visualizer" loading="lazy"></iframe>
+            </div>
+          </article>
+
+          <article id="topic-kraft-consensus" class="learning-topic" data-title="KRaft Consensus">
+            <header class="learning-header">
+              <span class="learning-tag">Databases / Kafka</span>
+              <h3>KRaft Consensus</h3>
+              <p>Animated KRaft metadata cluster — leader election, split-vote recovery, log catch-up, network partitions, observer promotion, snapshots, and ZK migration.</p>
+            </header>
+            <div class="learning-canvas learning-canvas--medium">
+              <iframe src="learnings/kraft-consensus.html" title="KRaft consensus visualizer" loading="lazy"></iframe>
+            </div>
+          </article>
+
           <article id="topic-hnsw-rag" class="learning-topic" data-title="HNSW &amp; RAG Pipeline">
             <header class="learning-header">
               <span class="learning-tag">Vector DB / RAG</span>
@@ -168,28 +74,6 @@
             </header>
             <div class="learning-canvas learning-canvas--tall">
               <iframe src="learnings/hnsw-rag.html" title="HNSW and RAG pipeline visualization" loading="lazy"></iframe>
-            </div>
-          </article>
-
-          <article id="topic-rag-evals" class="learning-topic" data-title="RAG Evaluation Frameworks">
-            <header class="learning-header">
-              <span class="learning-tag">AI / RAG</span>
-              <h3>RAG Evaluation Frameworks</h3>
-              <p>How I think about retrieval quality — relevance scoring, faithfulness checks, hallucination guardrails, and golden test suites.</p>
-            </header>
-            <div class="learning-canvas">
-              <iframe src="learnings/rag-evals.html" title="RAG Evaluation Frameworks visualization" loading="lazy"></iframe>
-            </div>
-          </article>
-
-          <article id="topic-vllm-optimization" class="learning-topic" data-title="vLLM Inference Optimization">
-            <header class="learning-header">
-              <span class="learning-tag">LLM / Infra</span>
-              <h3>vLLM Inference Optimization</h3>
-              <p>Parameter tuning and benchmarking — PagedAttention, batch sizing, and the path to 4× latency reduction.</p>
-            </header>
-            <div class="learning-canvas">
-              <iframe src="learnings/vllm-optimization.html" title="vLLM Optimization visualization" loading="lazy"></iframe>
             </div>
           </article>
 

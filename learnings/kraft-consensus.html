@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KRaft Consensus Matrix</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html {
+            width: 100%; min-height: 100%;
+            background-color: #0a0d12;
+            display: flex; justify-content: center; align-items: center;
+            font-family: "JetBrains Mono", "Courier New", Courier, monospace;
+            padding: 24px 16px;
+        }
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 30px 70px rgba(0, 0, 0, 0.95);
+            border-radius: 16px;
+            border: 1px solid #11152c;
+        }
+        canvas { display: block; background: #070914; border-radius: 16px; }
+        .hud-label {
+            position: absolute; color: #516480; font-size: 11px;
+            font-weight: bold; letter-spacing: 2px; text-transform: uppercase;
+            top: 25px; left: 45px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="kraftCanvas"></canvas>
+        <div class="hud-label">[ KRaft Metadata Cluster Status ]</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('kraftCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const WIDTH = 960;
+        const HEIGHT = 540;
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+
+        const spacing = 20;
+        const dotRadius = 2.5;
+        const QUORUM = 3;
+        const VOTER_COUNT = 5;
+
+        let currentEpoch = 1;
+        let globalLogIndex = 42;
+        let snapshotId = 7;
+        let logSegments = 12;
+        const nodes = [];
+        let packets = [];
+        let lastLeaderSeen = performance.now();
+        let chaosEnabled = true;
+
+        let activeScenario = 'STEADY';
+        let scenarioFrame = 0;
+        let scenarioIndex = 0;
+        let partitionLine = null;
+        let zkBridgeActive = false;
+        let scenarioBanner = { title: 'STEADY STATE', detail: 'Leader heartbeats · quorum stable' };
+
+        const SCENARIO_ORDER = [
+            'STEADY', 'SPLIT_VOTE', 'LOG_CATCHUP', 'PARTITION',
+            'OBSERVER', 'SNAPSHOT', 'ZK_MIGRATION',
+        ];
+        const SCENARIO_DURATION = 420;
+
+        function purgePacketsExcept(...keepTypes) {
+            for (let i = packets.length - 1; i >= 0; i--) {
+                if (!keepTypes.includes(packets[i].type)) packets.splice(i, 1);
+            }
+        }
+
+        const basePositions = [
+            { id: 1, x: 480, y: 130, label: 'Broker_1_Controller' },
+            { id: 2, x: 720, y: 240, label: 'Broker_2_Controller' },
+            { id: 3, x: 630, y: 410, label: 'Broker_3_Controller' },
+            { id: 4, x: 330, y: 410, label: 'Broker_4_Controller' },
+            { id: 5, x: 240, y: 240, label: 'Broker_5_Controller' },
+        ];
+
+        class KRaftNode {
+            constructor(config) {
+                this.id = config.id;
+                this.x = config.x;
+                this.y = config.y;
+                this.label = config.label;
+                this.state = 'FOLLOWER';
+                this.role = config.role || 'VOTER';
+                this.votesReceived = 0;
+                this.heartbeatTimer = 0;
+                this.votedInThisEpoch = false;
+                this.partitionGroup = 'MAJORITY';
+                this.logOffset = globalLogIndex - Math.floor(Math.random() * 4);
+                this.uncommitted = 0;
+                this.catchUpProgress = 0;
+                this.snapshotStreaming = false;
+                this.statusNote = '';
+                this.resetElectionTimeout();
+            }
+
+            get isVoter() { return this.role === 'VOTER'; }
+            get canParticipate() { return this.isVoter && !this.isIsolatedMinority(); }
+
+            isIsolatedMinority() {
+                return activeScenario === 'PARTITION' && this.partitionGroup === 'MINORITY';
+            }
+
+            resetElectionTimeout() {
+                this.maxTimeout = Math.floor(Math.random() * 250) + 350;
+                this.electionTimeout = this.maxTimeout;
+            }
+
+            update() {
+                if (activeScenario === 'SNAPSHOT' && this.snapshotStreaming) return;
+                if (!this.canParticipate && this.state !== 'LEADER') {
+                    if (this.state === 'CANDIDATE' || this.state === 'FOLLOWER') {
+                        this.electionTimeout -= 0.5;
+                        if (this.electionTimeout <= 0) this.startElection(true);
+                    }
+                    return;
+                }
+
+                if (this.state === 'FOLLOWER') {
+                    this.electionTimeout -= 0.5;
+                    if (this.electionTimeout <= 0) this.startElection();
+                } else if (this.state === 'LEADER') {
+                    this.heartbeatTimer -= 0.5;
+                    if (this.heartbeatTimer <= 0) {
+                        this.sendHeartbeats();
+                        if (activeScenario === 'LOG_CATCHUP' && scenarioFrame > 80) {
+                            this.sendCatchUpRecords();
+                        }
+                        if (activeScenario === 'ZK_MIGRATION') {
+                            this.sendDualWrite();
+                        }
+                        if (activeScenario === 'STEADY' && Math.random() < 0.08) {
+                            globalLogIndex++;
+                            this.logOffset = globalLogIndex;
+                            logSegments = Math.min(24, logSegments + 0.02);
+                        }
+                        this.heartbeatTimer = 70;
+                    }
+                } else if (this.state === 'CANDIDATE') {
+                    this.electionTimeout -= 0.5;
+                    if (this.electionTimeout <= 0) {
+                        this.state = 'FOLLOWER';
+                        this.votesReceived = 0;
+                        this.votedInThisEpoch = false;
+                        this.resetElectionTimeout();
+                    }
+                }
+            }
+
+            startElection(isMinorityAttempt = false) {
+                if (!this.isVoter) return;
+                purgePacketsExcept('HEARTBEAT', 'SNAPSHOT_STREAM', 'ZK_RECORD');
+
+                currentEpoch++;
+                nodes.forEach(n => {
+                    if (!n.isVoter) return;
+                    n.votedInThisEpoch = false;
+                    if (n.state === 'CANDIDATE') {
+                        n.state = 'FOLLOWER';
+                        n.votesReceived = 0;
+                        n.resetElectionTimeout();
+                    }
+                });
+
+                this.state = 'CANDIDATE';
+                this.votesReceived = 1;
+                this.votedInThisEpoch = true;
+                this.resetElectionTimeout();
+                this.statusNote = isMinorityAttempt ? 'NO QUORUM' : '';
+
+                nodes.forEach(target => {
+                    if (target.id !== this.id && canReach(this, target)) {
+                        packets.push(new KRaftPacket(this, target, 'REQUEST_VOTE'));
+                    }
+                });
+            }
+
+            sendHeartbeats() {
+                nodes.forEach(target => {
+                    if (target.id !== this.id && canReach(this, target)) {
+                        packets.push(new KRaftPacket(this, target, 'HEARTBEAT'));
+                    }
+                });
+            }
+
+            sendCatchUpRecords() {
+                nodes.forEach(target => {
+                    if (target.id !== this.id && target.logOffset < globalLogIndex && canReach(this, target)) {
+                        packets.push(new KRaftPacket(this, target, 'FETCH_RECORDS'));
+                    }
+                });
+            }
+
+            sendDualWrite() {
+                packets.push(new KRaftPacket({ x: 80, y: 460, id: 'ZK' }, this, 'ZK_RECORD'));
+                nodes.forEach(target => {
+                    if (target.id !== this.id && canReach(this, target)) {
+                        packets.push(new KRaftPacket(this, target, 'HEARTBEAT'));
+                    }
+                });
+            }
+
+            receivePacket(packet) {
+                if (packet.type === 'HEARTBEAT') {
+                    if (this.role === 'OBSERVER' || this.canParticipate) {
+                        this.state = 'FOLLOWER';
+                        this.votedInThisEpoch = false;
+                        this.resetElectionTimeout();
+                        if (this.role === 'OBSERVER') this.logOffset = Math.min(this.logOffset + 1, globalLogIndex);
+                    }
+                } else if (packet.type === 'REQUEST_VOTE') {
+                    if (this.canParticipate && this.state === 'FOLLOWER' && !this.votedInThisEpoch) {
+                        this.votedInThisEpoch = true;
+                        this.resetElectionTimeout();
+                        packets.push(new KRaftPacket(this, packet.source, 'GRANT_VOTE'));
+                    }
+                } else if (packet.type === 'GRANT_VOTE' && this.state === 'CANDIDATE') {
+                    this.votesReceived++;
+                    const reachableVoters = nodes.filter(n => n.isVoter && canReach(this, n)).length;
+                    const needed = Math.floor(reachableVoters / 2) + 1;
+                    if (this.votesReceived >= needed && needed >= QUORUM) {
+                        this.state = 'LEADER';
+                        this.heartbeatTimer = 0;
+                        this.statusNote = '';
+                        purgePacketsExcept('HEARTBEAT');
+                    } else if (this.votesReceived >= needed && needed < QUORUM) {
+                        this.statusNote = 'NO QUORUM';
+                    }
+                } else if (packet.type === 'FETCH_RECORDS') {
+                    if (this.uncommitted > 0) this.uncommitted = 0;
+                    this.catchUpProgress = Math.min(1, this.catchUpProgress + 0.12);
+                    if (this.catchUpProgress >= 1) {
+                        this.logOffset = globalLogIndex;
+                        this.catchUpProgress = 0;
+                        this.statusNote = '';
+                    } else {
+                        this.statusNote = 'CATCH-UP';
+                    }
+                } else if (packet.type === 'SNAPSHOT_STREAM') {
+                    this.snapshotStreaming = true;
+                    this.statusNote = 'SNAPSHOT';
+                } else if (packet.type === 'ZK_RECORD') {
+                    if (this.state === 'LEADER') this.statusNote = 'DUAL-WRITE';
+                }
+            }
+        }
+
+        class KRaftPacket {
+            constructor(source, target, type) {
+                this.source = source;
+                this.target = target;
+                this.type = type;
+                this.x = source.x;
+                this.y = source.y;
+                this.progress = 0;
+                this.speed = type === 'SNAPSHOT_STREAM' ? 0.008 : 0.015;
+            }
+
+            update() {
+                this.progress += this.speed;
+                this.x = this.source.x + (this.target.x - this.source.x) * this.progress;
+                this.y = this.source.y + (this.target.y - this.source.y) * this.progress;
+                if (this.progress >= 1) {
+                    this.target.receivePacket(this);
+                    return false;
+                }
+                return true;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.type === 'SNAPSHOT_STREAM' ? 6 : 4, 0, Math.PI * 2);
+                const colors = {
+                    HEARTBEAT: '#00d2d3',
+                    REQUEST_VOTE: '#ff9f43',
+                    GRANT_VOTE: '#9b5de5',
+                    FETCH_RECORDS: '#feca57',
+                    SNAPSHOT_STREAM: '#54a0ff',
+                    ZK_RECORD: '#c56cf0',
+                };
+                ctx.fillStyle = colors[this.type] || '#ffffff';
+                ctx.fill();
+            }
+        }
+
+        function canReach(a, b) {
+            if (activeScenario !== 'PARTITION') return true;
+            return a.partitionGroup === b.partitionGroup;
+        }
+
+        function initNodes(includeObserver = false) {
+            nodes.length = 0;
+            basePositions.forEach(pos => nodes.push(new KRaftNode({ ...pos, role: 'VOTER' })));
+            if (includeObserver) {
+                nodes.push(new KRaftNode({
+                    id: 6, x: 480, y: 480, label: 'Broker_6_Observer', role: 'OBSERVER',
+                }));
+            }
+        }
+
+        function getLeader() {
+            return nodes.find(n => n.state === 'LEADER');
+        }
+
+        function recoverCluster() {
+            packets = [];
+            currentEpoch++;
+            nodes.forEach(n => {
+                if (!n.isVoter) return;
+                n.state = 'FOLLOWER';
+                n.votesReceived = 0;
+                n.votedInThisEpoch = false;
+                n.heartbeatTimer = 0;
+                n.statusNote = '';
+                n.catchUpProgress = 0;
+                n.snapshotStreaming = false;
+                n.resetElectionTimeout();
+                n.electionTimeout = Math.random() * 80 + 40;
+            });
+            lastLeaderSeen = performance.now();
+        }
+
+        function setupScenario(name) {
+            activeScenario = name;
+            scenarioFrame = 0;
+            chaosEnabled = name === 'STEADY';
+            partitionLine = null;
+            zkBridgeActive = false;
+            packets = [];
+
+            switch (name) {
+                case 'STEADY':
+                    initNodes(false);
+                    scenarioBanner = { title: 'STEADY STATE', detail: 'Leader heartbeats · metadata log appending' };
+                    nodes[0].electionTimeout = 40;
+                    break;
+
+                case 'SPLIT_VOTE':
+                    initNodes(false);
+                    scenarioBanner = { title: 'SPLIT-VOTE RECOVERY', detail: 'Multiple candidates · randomized timeouts break deadlock next epoch' };
+                    nodes.forEach(n => {
+                        n.state = 'CANDIDATE';
+                        n.votesReceived = 1 + (n.id % 2);
+                        n.votedInThisEpoch = true;
+                        n.electionTimeout = 120 + n.id * 25;
+                        n.maxTimeout = n.electionTimeout;
+                        n.statusNote = 'SPLIT';
+                    });
+                    currentEpoch += 2;
+                    break;
+
+                case 'LOG_CATCHUP':
+                    initNodes(false);
+                    scenarioBanner = { title: 'LOG RECONCILIATION', detail: 'New leader epoch · lagging followers truncate & fetch records' };
+                    globalLogIndex = 58;
+                    nodes.forEach((n, i) => {
+                        n.state = i === 0 ? 'LEADER' : 'FOLLOWER';
+                        n.logOffset = i === 0 ? globalLogIndex : globalLogIndex - 8 + i;
+                        n.uncommitted = i > 0 ? 3 : 0;
+                        n.statusNote = i > 0 ? 'LAGGING' : '';
+                    });
+                    currentEpoch += 3;
+                    break;
+
+                case 'PARTITION':
+                    initNodes(false);
+                    scenarioBanner = { title: 'NETWORK PARTITION', detail: 'Minority island (2/5) · cannot reach quorum ≥3' };
+                    nodes[3].partitionGroup = 'MINORITY';
+                    nodes[4].partitionGroup = 'MINORITY';
+                    nodes[3].state = 'CANDIDATE';
+                    nodes[4].state = 'CANDIDATE';
+                    nodes[3].votesReceived = 2;
+                    nodes[4].votesReceived = 2;
+                    nodes[3].statusNote = 'NO QUORUM';
+                    nodes[4].statusNote = 'NO QUORUM';
+                    nodes[0].state = 'LEADER';
+                    partitionLine = { x1: 400, y1: 80, x2: 400, y2: 460 };
+                    break;
+
+                case 'OBSERVER':
+                    initNodes(true);
+                    scenarioBanner = { title: 'OBSERVER → VOTER PROMOTION', detail: 'Broker joins as observer · later promoted to voting member' };
+                    nodes[0].state = 'LEADER';
+                    nodes[5].logOffset = globalLogIndex - 5;
+                    nodes[5].statusNote = 'OBSERVER';
+                    break;
+
+                case 'SNAPSHOT':
+                    initNodes(false);
+                    scenarioBanner = { title: 'METADATA SNAPSHOT PURGE', detail: 'Point-in-time snapshot · old log segments truncated' };
+                    logSegments = 22;
+                    nodes[0].state = 'LEADER';
+                    nodes.forEach((n, i) => {
+                        n.logOffset = globalLogIndex - (i * 2);
+                        if (i >= 3) { n.logOffset -= 15; n.statusNote = 'FAR BEHIND'; }
+                    });
+                    break;
+
+                case 'ZK_MIGRATION':
+                    initNodes(false);
+                    scenarioBanner = { title: 'ZK → KRAFT MIGRATION', detail: 'Dual-write bridge · metadata mirrored across coordination planes' };
+                    zkBridgeActive = true;
+                    nodes[0].state = 'LEADER';
+                    nodes[0].statusNote = 'DUAL-WRITE';
+                    break;
+            }
+        }
+
+        function updateScenario() {
+            scenarioFrame++;
+
+            if (scenarioFrame >= SCENARIO_DURATION) {
+                scenarioIndex = (scenarioIndex + 1) % SCENARIO_ORDER.length;
+                setupScenario(SCENARIO_ORDER[scenarioIndex]);
+                return;
+            }
+
+            if (activeScenario === 'SPLIT_VOTE' && scenarioFrame === 180) {
+                nodes.forEach(n => {
+                    n.state = 'FOLLOWER';
+                    n.votesReceived = 0;
+                    n.votedInThisEpoch = false;
+                    n.statusNote = '';
+                    n.electionTimeout = 30 + n.id * 40;
+                    n.maxTimeout = n.electionTimeout;
+                });
+            }
+
+            if (activeScenario === 'OBSERVER' && scenarioFrame === 260) {
+                const obs = nodes.find(n => n.role === 'OBSERVER');
+                if (obs) {
+                    obs.role = 'VOTER';
+                    obs.label = 'Broker_6_Controller';
+                    obs.statusNote = 'PROMOTED';
+                }
+            }
+
+            if (activeScenario === 'SNAPSHOT' && scenarioFrame === 120) {
+                logSegments = 4;
+                snapshotId++;
+                globalLogIndex += 2;
+                nodes.forEach(n => {
+                    n.logOffset = globalLogIndex;
+                    n.statusNote = n.id > 3 ? 'SNAPSHOT' : '';
+                });
+                const leader = getLeader();
+                nodes.forEach(n => {
+                    if (n.statusNote === 'SNAPSHOT' && leader) {
+                        packets.push(new KRaftPacket(leader, n, 'SNAPSHOT_STREAM'));
+                    }
+                });
+            }
+
+            if (activeScenario === 'SNAPSHOT' && scenarioFrame === 200) {
+                nodes.forEach(n => { n.snapshotStreaming = false; n.statusNote = ''; });
+            }
+        }
+
+        function triggerChaosEngine() {
+            if (!chaosEnabled) {
+                setTimeout(triggerChaosEngine, 3000);
+                return;
+            }
+            const leader = getLeader();
+            if (leader) {
+                leader.state = 'FOLLOWER';
+                leader.votedInThisEpoch = false;
+                leader.resetElectionTimeout();
+                leader.electionTimeout = 50;
+            }
+            setTimeout(triggerChaosEngine, Math.random() * 5000 + 9000);
+        }
+
+        initNodes(false);
+        setupScenario('STEADY');
+        setTimeout(triggerChaosEngine, 6000);
+
+        function drawPartition() {
+            if (!partitionLine) return;
+            ctx.setLineDash([8, 8]);
+            ctx.strokeStyle = 'rgba(255, 71, 87, 0.55)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(partitionLine.x1, partitionLine.y1);
+            ctx.lineTo(partitionLine.x2, partitionLine.y2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font = '10px Courier New';
+            ctx.fillStyle = '#ff4757';
+            ctx.fillText('NETWORK FAULT', partitionLine.x1 + 8, 100);
+        }
+
+        function drawScenarioBanner() {
+            ctx.font = 'bold 12px Courier New';
+            ctx.fillStyle = '#00d2d3';
+            ctx.fillText(`SCENARIO: ${scenarioBanner.title}`, 45, 68);
+            ctx.font = '10px Courier New';
+            ctx.fillStyle = '#6e7f99';
+            ctx.fillText(scenarioBanner.detail, 45, 84);
+        }
+
+        function drawNodeExtras(node) {
+            const barX = node.x - 34;
+            const barY = node.y + 62;
+            const logW = 68;
+            const committedW = Math.max(4, (node.logOffset / (globalLogIndex + 1)) * logW);
+            const uncommitW = node.uncommitted * 4;
+
+            ctx.fillStyle = 'rgba(255,255,255,0.06)';
+            ctx.fillRect(barX, barY, logW, 4);
+            ctx.fillStyle = '#00d2d3';
+            ctx.fillRect(barX, barY, committedW, 4);
+            if (node.uncommitted > 0) {
+                ctx.fillStyle = '#ff4757';
+                ctx.fillRect(barX + committedW, barY, uncommitW, 4);
+            }
+            if (node.catchUpProgress > 0) {
+                ctx.fillStyle = '#feca57';
+                ctx.fillRect(barX, barY + 6, logW * node.catchUpProgress, 2);
+            }
+
+            if (node.statusNote) {
+                ctx.font = '9px Courier New';
+                ctx.fillStyle = node.statusNote.includes('NO QUORUM') ? '#ff4757'
+                    : node.statusNote === 'DUAL-WRITE' ? '#c56cf0'
+                    : node.statusNote === 'OBSERVER' ? '#8395a7'
+                    : '#feca57';
+                ctx.fillText(`[${node.statusNote}]`, node.x - 38, node.y + 78);
+            }
+        }
+
+        function drawScene() {
+            try {
+                ctx.fillStyle = '#070914';
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                updateScenario();
+                nodes.forEach(node => node.update());
+
+                for (let i = packets.length - 1; i >= 0; i--) {
+                    const packet = packets[i];
+                    if (!packet) continue;
+                    if (!packet.update()) packets.splice(i, 1);
+                }
+
+                const hasLeader = nodes.some(n => n.state === 'LEADER');
+                if (hasLeader) lastLeaderSeen = performance.now();
+                else if (activeScenario === 'STEADY' && performance.now() - lastLeaderSeen > 6000) recoverCluster();
+
+                drawPartition();
+
+                for (let x = spacing; x < WIDTH; x += spacing) {
+                    for (let y = spacing; y < HEIGHT; y += spacing) {
+                        let dotColor = 'rgba(24, 28, 48, 0.35)';
+                        let radius = dotRadius;
+                        let glowAlpha = 0;
+                        let glowColor = '';
+
+                        nodes.forEach(node => {
+                            const dx = x - node.x, dy = y - node.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist <= 30) {
+                                radius = dotRadius + 1;
+                                if (node.state === 'LEADER') {
+                                    dotColor = '#00d2d3';
+                                    glowAlpha = 0.25 - dist / 120;
+                                    glowColor = '0, 210, 211';
+                                } else if (node.state === 'CANDIDATE') {
+                                    dotColor = '#ff9f43';
+                                    glowAlpha = 0.3 - dist / 100;
+                                    glowColor = '255, 159, 67';
+                                } else if (node.role === 'OBSERVER') {
+                                    dotColor = 'rgba(131, 149, 167, 0.85)';
+                                } else if (node.isIsolatedMinority()) {
+                                    dotColor = 'rgba(255, 71, 87, 0.55)';
+                                } else {
+                                    dotColor = 'rgba(78, 100, 140, 0.7)';
+                                }
+                            }
+                        });
+
+                        if (glowAlpha > 0) {
+                            ctx.beginPath();
+                            ctx.arc(x, y, 14, 0, Math.PI * 2);
+                            ctx.fillStyle = `rgba(${glowColor}, ${glowAlpha})`;
+                            ctx.fill();
+                        }
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = dotColor;
+                        ctx.fill();
+                    }
+                }
+
+                drawScenarioBanner();
+
+                nodes.forEach(node => {
+                    ctx.font = '10px Courier New';
+                    ctx.fillStyle = '#4c5870';
+                    ctx.fillText(node.label, node.x - 55, node.y - 45);
+
+                    ctx.font = 'bold 11px Courier New';
+                    if (node.state === 'LEADER') {
+                        ctx.fillStyle = '#00d2d3';
+                        ctx.fillText('[ LEADER ]', node.x - 30, node.y + 48);
+                    } else if (node.state === 'CANDIDATE') {
+                        ctx.fillStyle = '#ff9f43';
+                        ctx.fillText(`[VOTES: ${node.votesReceived}/${QUORUM}]`, node.x - 38, node.y + 48);
+                    } else if (node.role === 'OBSERVER') {
+                        ctx.fillStyle = '#8395a7';
+                        ctx.fillText('[ OBSERVER ]', node.x - 36, node.y + 48);
+                    } else {
+                        ctx.fillStyle = node.isIsolatedMinority() ? '#ff4757' : '#516480';
+                        ctx.fillText('[ FOLLOWER ]', node.x - 36, node.y + 48);
+                        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                        ctx.fillRect(node.x - 30, node.y + 55, 60, 3);
+                        ctx.fillStyle = 'rgba(0, 210, 211, 0.4)';
+                        const fillW = Math.max(0, Math.min(60, (node.electionTimeout / node.maxTimeout) * 60));
+                        ctx.fillRect(node.x - 30, node.y + 55, fillW, 3);
+                    }
+                    drawNodeExtras(node);
+                });
+
+                if (zkBridgeActive) {
+                    ctx.font = '10px Courier New';
+                    ctx.fillStyle = '#c56cf0';
+                    ctx.fillText('ZOOKEEPER PLANE ──dual-write──▶ KRAFT LEADER', 580, 505);
+                }
+
+                packets.forEach(packet => packet.draw());
+
+                ctx.font = '13px Courier New';
+                ctx.fillStyle = '#6e7f99';
+                ctx.fillText(`METADATA_EPOCH: ${currentEpoch}  |  LOG_INDEX: ${globalLogIndex}  |  SNAPSHOT: v${snapshotId}  |  SEGMENTS: ${Math.floor(logSegments)}`, 45, 485);
+                ctx.font = '11px Courier New';
+                ctx.fillStyle = '#41526b';
+                ctx.fillText(`SCENARIO_ROTATION: ${scenarioFrame}/${SCENARIO_DURATION}f  ·  CHAOS: ${chaosEnabled ? 'ARMED' : 'PAUSED'}`, 45, 505);
+
+            } catch (err) {
+                console.error('KRaft visualizer recoverable error:', err);
+                recoverCluster();
+            }
+
+            requestAnimationFrame(drawScene);
+        }
+
+        drawScene();
+    </script>
+</body>
+</html>

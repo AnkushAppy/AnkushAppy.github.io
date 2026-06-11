@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostgreSQL Connection Pool</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html {
+            width: 100%; min-height: 100%;
+            background-color: #0a0d12;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            font-family: "JetBrains Mono", "Courier New", Courier, monospace;
+            color: #8b95a8;
+            padding: 24px 16px;
+            overflow-x: auto;
+        }
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9);
+            border-radius: 16px;
+            border: 1px solid #1f2736;
+            max-width: 100%;
+        }
+        canvas { display: block; background: #070810; border-radius: 16px; max-width: 100%; height: auto; }
+        .panel-header {
+            position: absolute; color: #516075; font-size: 11px;
+            font-weight: bold; letter-spacing: 2px; text-transform: uppercase;
+        }
+        .legend {
+            margin-top: 16px; display: flex; gap: 24px; font-size: 11px;
+            letter-spacing: 1px; flex-wrap: wrap; justify-content: center;
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="pingPongCanvas"></canvas>
+        <div class="panel-header" style="top: 22px; left: 40px;">[ Load Balancer → Scaled Application Tier ]</div>
+        <div class="panel-header" style="top: 22px; right: 40px;">[ PostgreSQL Database Engine ]</div>
+    </div>
+    <div class="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#a29bfe"></span> Load Balancer</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ff9f43"></span> App Server 1</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#feca57"></span> App Server 2</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span> App Server 3</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#00d2d3"></span> PostgreSQL</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('pingPongCanvas');
+        const context = canvas.getContext('2d');
+
+        const WIDTH = 1240;
+        const HEIGHT = 580;
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+
+        const spacing = 20;
+        const dotRadius = 2.5;
+
+        const NUM_SERVERS = 3;
+        const POOL_PER_SERVER = 8;
+        const PG_POOL_SIZE = NUM_SERVERS * POOL_PER_SERVER;
+
+        const LB_COLOR = '#a29bfe';
+        const LB_GLOW  = 'rgba(162, 155, 254, ';
+        const SERVER_COLORS = ['#ff9f43', '#feca57', '#ff6b6b'];
+        const SERVER_GLOW   = ['rgba(255, 159, 67, ', 'rgba(254, 202, 87, ', 'rgba(255, 107, 107, '];
+        const PG_COLOR = '#00d2d3';
+        const PG_GLOW  = 'rgba(0, 210, 211, ';
+
+        const LB_BOX = { x: 28, y: 195, w: 108, h: 190, label: 'Load Balancer', host: 'api.gateway:443' };
+
+        const SERVERS = [
+            { id: 0, label: 'App Server 1', host: '10.0.1.11:8080', box: { x: 185, y: 58,  w: 280, h: 148 } },
+            { id: 1, label: 'App Server 2', host: '10.0.1.12:8080', box: { x: 185, y: 218, w: 280, h: 148 } },
+            { id: 2, label: 'App Server 3', host: '10.0.1.13:8080', box: { x: 185, y: 378, w: 280, h: 148 } },
+        ];
+
+        const PG_BOX = { x: 730, y: 58, w: 420, h: 468 };
+
+        const serverPoolStates = SERVERS.map(() => new Array(POOL_PER_SERVER).fill(0));
+        const pgPoolStates = new Array(PG_POOL_SIZE).fill(0);
+        const inflightSlots = new Set();
+        const networkPackets = [];
+
+        let roundRobinIdx = 0;
+        let lbTotalRouted = 0;
+        let lbActiveRoutes = 0;
+
+        function slotKey(serverId, localSlot) {
+            return `${serverId}:${localSlot}`;
+        }
+
+        function globalSlotIndex(serverId, localSlot) {
+            return serverId * POOL_PER_SERVER + localSlot;
+        }
+
+        function getLbIngress() {
+            return { x: LB_BOX.x - 14, y: LB_BOX.y + LB_BOX.h / 2 };
+        }
+
+        function getLbCenter() {
+            return { x: LB_BOX.x + LB_BOX.w / 2, y: LB_BOX.y + LB_BOX.h / 2 };
+        }
+
+        function getAppIngress(serverId) {
+            const box = SERVERS[serverId].box;
+            return { x: box.x, y: box.y + box.h / 2 };
+        }
+
+        function getAppSlotCoords(serverId, localIndex) {
+            const box = SERVERS[serverId].box;
+            const col = localIndex % 4;
+            const row = Math.floor(localIndex / 4);
+            return {
+                x: box.x + 90 + col * 52,
+                y: box.y + 72 + row * 38,
+            };
+        }
+
+        function getPgSlotCoords(globalIndex) {
+            const col = globalIndex % 6;
+            const row = Math.floor(globalIndex / 6);
+            return {
+                x: PG_BOX.x + 60 + col * 58,
+                y: PG_BOX.y + 90 + row * 48,
+            };
+        }
+
+        class NetworkPacket {
+            constructor(serverId, localSlot) {
+                this.serverId = serverId;
+                this.localSlot = localSlot;
+                this.globalSlot = globalSlotIndex(serverId, localSlot);
+                this.key = slotKey(serverId, localSlot);
+
+                this.appCoords = getAppSlotCoords(serverId, localSlot);
+                this.pgCoords = getPgSlotCoords(this.globalSlot);
+                this.lbIngress = getLbIngress();
+                this.lbCenter = getLbCenter();
+                this.appIngress = getAppIngress(serverId);
+
+                this.x = this.lbIngress.x;
+                this.y = this.lbIngress.y;
+                this.progress = 0;
+                this.speed = 0.06;
+                this.phase = 'INGRESS';
+                this.dbTimer = Math.floor(Math.random() * 35) + 18;
+                this._from = { ...this.lbIngress };
+                this._to = { ...this.lbCenter };
+
+                inflightSlots.add(this.key);
+                lbActiveRoutes++;
+            }
+
+            get color() {
+                if (this.phase === 'INGRESS' || this.phase === 'EGRESS') return LB_COLOR;
+                if (this.phase === 'ROUTE' || this.phase === 'RETURN_ROUTE') return SERVER_COLORS[this.serverId];
+                if (this.phase === 'PONG' || this.phase === 'RETURN') return PG_COLOR;
+                return SERVER_COLORS[this.serverId];
+            }
+
+            get glow() {
+                if (this.phase === 'INGRESS' || this.phase === 'EGRESS') return LB_GLOW;
+                if (this.phase === 'PONG' || this.phase === 'RETURN') return PG_GLOW;
+                return SERVER_GLOW[this.serverId];
+            }
+
+            _lerpSegment() {
+                this.progress += this.speed;
+                this.x = this._from.x + (this._to.x - this._from.x) * this.progress;
+                this.y = this._from.y + (this._to.y - this._from.y) * this.progress;
+                return this.progress >= 1;
+            }
+
+            _setSegment(from, to, phase, speed) {
+                this._from = { ...from };
+                this._to = { ...to };
+                this.progress = 0;
+                this.phase = phase;
+                if (speed !== undefined) this.speed = speed;
+            }
+
+            _leasePool() {
+                serverPoolStates[this.serverId][this.localSlot] = 1;
+                pgPoolStates[this.globalSlot] = 1;
+            }
+
+            update() {
+                if (this.phase === 'INGRESS') {
+                    if (this._lerpSegment()) {
+                        this._setSegment(this.lbCenter, this.appIngress, 'ROUTE', 0.045);
+                    }
+                } else if (this.phase === 'ROUTE') {
+                    if (this._lerpSegment()) {
+                        this._leasePool();
+                        inflightSlots.delete(this.key);
+                        this._setSegment(this.appIngress, this.appCoords, 'POOL', 0.08);
+                    }
+                } else if (this.phase === 'POOL') {
+                    if (this._lerpSegment()) {
+                        this._setSegment(this.appCoords, this.pgCoords, 'PING', 0.04 + Math.random() * 0.02);
+                    }
+                } else if (this.phase === 'PING') {
+                    if (this._lerpSegment()) {
+                        this.phase = 'DB_PROCESSING';
+                        serverPoolStates[this.serverId][this.localSlot] = 2;
+                        pgPoolStates[this.globalSlot] = 2;
+                    }
+                } else if (this.phase === 'DB_PROCESSING') {
+                    this.dbTimer--;
+                    if (this.dbTimer <= 0) {
+                        this.phase = 'PONG';
+                        this.progress = 0;
+                        serverPoolStates[this.serverId][this.localSlot] = 3;
+                        pgPoolStates[this.globalSlot] = 3;
+                        this._setSegment(this.pgCoords, this.appCoords, 'PONG', 0.04 + Math.random() * 0.02);
+                    }
+                } else if (this.phase === 'PONG') {
+                    if (this._lerpSegment()) {
+                        this._setSegment(this.appCoords, this.appIngress, 'RETURN', 0.05);
+                    }
+                } else if (this.phase === 'RETURN') {
+                    if (this._lerpSegment()) {
+                        this._setSegment(this.appIngress, this.lbCenter, 'RETURN_ROUTE', 0.045);
+                    }
+                } else if (this.phase === 'RETURN_ROUTE') {
+                    if (this._lerpSegment()) {
+                        this._setSegment(this.lbCenter, this.lbIngress, 'EGRESS', 0.06);
+                    }
+                } else if (this.phase === 'EGRESS') {
+                    if (this._lerpSegment()) {
+                        serverPoolStates[this.serverId][this.localSlot] = 0;
+                        pgPoolStates[this.globalSlot] = 0;
+                        lbActiveRoutes--;
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            draw() {
+                if (this.phase === 'DB_PROCESSING') return;
+
+                context.beginPath();
+                context.arc(this.x, this.y, 5, 0, Math.PI * 2);
+                context.fillStyle = this.color;
+                context.fill();
+
+                context.beginPath();
+                context.arc(this.x, this.y, 10, 0, Math.PI * 2);
+                context.fillStyle = `${this.glow}0.3)`;
+                context.fill();
+            }
+        }
+
+        function drawLoadBalancer() {
+            const { x, y, w, h, label, host } = LB_BOX;
+
+            context.strokeStyle = 'rgba(162, 155, 254, 0.35)';
+            context.lineWidth = 1;
+            context.strokeRect(x, y, w, h);
+            context.fillStyle = 'rgba(162, 155, 254, 0.04)';
+            context.fillRect(x, y, w, h);
+
+            context.font = 'bold 12px Courier New';
+            context.fillStyle = LB_COLOR;
+            context.fillText(label, x + 12, y + 22);
+
+            context.font = '10px Courier New';
+            context.fillStyle = 'rgba(255, 255, 255, 0.35)';
+            context.fillText(host, x + 12, y + 38);
+            context.fillText('algo: round-robin', x + 12, y + 52);
+
+            const statsY = y + h - 14;
+            context.strokeStyle = 'rgba(162, 155, 254, 0.2)';
+            context.beginPath();
+            context.moveTo(x + 8, statsY - 10);
+            context.lineTo(x + w - 8, statsY - 10);
+            context.stroke();
+
+            context.font = '11px Courier New';
+            context.fillStyle = LB_COLOR;
+            context.fillText(`Routed: ${lbTotalRouted}`, x + 12, statsY);
+            context.fillText(`In-flight: ${lbActiveRoutes}`, x + 12, statsY - 22);
+
+            // Client ingress arrow
+            const midY = y + h / 2;
+            context.beginPath();
+            context.strokeStyle = 'rgba(162, 155, 254, 0.2)';
+            context.lineWidth = 1;
+            context.setLineDash([4, 6]);
+            context.moveTo(x - 55, midY);
+            context.lineTo(x, midY);
+            context.stroke();
+            context.setLineDash([]);
+            context.font = '9px Courier New';
+            context.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            context.fillText('Clients', x - 52, midY - 8);
+
+            // Fan-out to app servers
+            const lbOutX = x + w;
+            const lbCenter = getLbCenter();
+            context.beginPath();
+            context.strokeStyle = 'rgba(162, 155, 254, 0.1)';
+            context.setLineDash([4, 8]);
+            SERVERS.forEach(s => {
+                const targetY = s.box.y + s.box.h / 2;
+                context.moveTo(lbOutX, lbCenter.y);
+                context.lineTo(s.box.x - 8, targetY);
+            });
+            context.stroke();
+            context.setLineDash([]);
+        }
+
+        function drawServerBox(server) {
+            const { box, label, host, id } = server;
+            const color = SERVER_COLORS[id];
+            const active = serverPoolStates[id].filter(s => s > 0).length;
+            const pending = [...inflightSlots].filter(k => k.startsWith(`${id}:`)).length;
+            const leasedLabel = `Leased: ${active}/${POOL_PER_SERVER}`;
+
+            context.strokeStyle = `${color}33`;
+            context.lineWidth = 1;
+            context.strokeRect(box.x, box.y, box.w, box.h);
+            context.fillStyle = 'rgba(255, 255, 255, 0.03)';
+            context.fillRect(box.x, box.y, box.w, box.h);
+
+            context.font = 'bold 12px Courier New';
+            context.fillStyle = color;
+            context.fillText(label, box.x + 14, box.y + 22);
+
+            context.font = '10px Courier New';
+            context.fillStyle = 'rgba(255, 255, 255, 0.35)';
+            context.fillText(host, box.x + 14, box.y + 38);
+            context.fillText(`pool: ${POOL_PER_SERVER} connections`, box.x + 14, box.y + 52);
+            if (pending > 0) {
+                context.fillStyle = `${color}88`;
+                context.fillText(`incoming: ${pending} from LB`, box.x + 160, box.y + 52);
+            }
+
+            const statsY = box.y + box.h - 14;
+            context.strokeStyle = `${color}22`;
+            context.beginPath();
+            context.moveTo(box.x + 10, statsY - 10);
+            context.lineTo(box.x + box.w - 10, statsY - 10);
+            context.stroke();
+
+            context.font = '11px Courier New';
+            context.fillStyle = color;
+            context.fillText(leasedLabel, box.x + 14, statsY);
+
+            const barX = box.x + 120;
+            const barW = box.w - 134;
+            const fillW = (active / POOL_PER_SERVER) * barW;
+            context.fillStyle = 'rgba(255, 255, 255, 0.06)';
+            context.fillRect(barX, statsY - 8, barW, 6);
+            if (fillW > 0) {
+                context.fillStyle = `${color}99`;
+                context.fillRect(barX, statsY - 8, fillW, 6);
+            }
+        }
+
+        function drawPgBox() {
+            const { x, y, w, h } = PG_BOX;
+
+            context.strokeStyle = 'rgba(0, 210, 211, 0.25)';
+            context.lineWidth = 1;
+            context.strokeRect(x, y, w, h);
+            context.fillStyle = 'rgba(0, 210, 211, 0.03)';
+            context.fillRect(x, y, w, h);
+
+            context.font = 'bold 12px Courier New';
+            context.fillStyle = PG_COLOR;
+            context.fillText('PostgreSQL 16', x + 14, y + 22);
+
+            context.font = '10px Courier New';
+            context.fillStyle = 'rgba(255, 255, 255, 0.35)';
+            context.fillText('postgres://db.internal:5432/production', x + 14, y + 38);
+            context.fillText(`max_connections: ${PG_POOL_SIZE}  (shared across all app servers)`, x + 14, y + 52);
+
+            const hubX = PG_BOX.x - 30;
+            const hubY = PG_BOX.y + PG_BOX.h / 2;
+            context.beginPath();
+            context.strokeStyle = 'rgba(0, 210, 211, 0.08)';
+            context.lineWidth = 1;
+            context.setLineDash([4, 8]);
+            SERVERS.forEach(s => {
+                const midY = s.box.y + s.box.h / 2;
+                context.moveTo(s.box.x + s.box.w, midY);
+                context.lineTo(hubX, midY);
+                context.lineTo(hubX, hubY);
+            });
+            context.lineTo(PG_BOX.x, hubY);
+            context.stroke();
+            context.setLineDash([]);
+        }
+
+        function drawMatrixDots() {
+            for (let x = spacing; x < WIDTH; x += spacing) {
+                for (let y = spacing; y < HEIGHT; y += spacing) {
+                    let dotColor = 'rgba(26, 30, 50, 0.35)';
+                    let radius = dotRadius;
+                    let glow = 0;
+                    let glowColor = '';
+
+                    for (let s = 0; s < NUM_SERVERS; s++) {
+                        const box = SERVERS[s].box;
+                        if (x >= box.x + 70 && x <= box.x + box.w - 20 &&
+                            y >= box.y + 60 && y <= box.y + box.h - 30) {
+                            const col = Math.floor((x - (box.x + 90)) / 52);
+                            const row = Math.floor((y - (box.y + 72)) / 38);
+                            if (col >= 0 && col < 4 && row >= 0 && row < 2) {
+                                const idx = col + row * 4;
+                                const state = serverPoolStates[s][idx];
+                                const baseColor = SERVER_COLORS[s];
+                                if (state > 0) {
+                                    dotColor = baseColor;
+                                    radius = dotRadius + 1.5;
+                                    glow = 0.2;
+                                    glowColor = SERVER_GLOW[s];
+                                } else {
+                                    dotColor = `${baseColor}1f`;
+                                }
+                            }
+                        }
+                    }
+
+                    if (x >= PG_BOX.x + 40 && x <= PG_BOX.x + PG_BOX.w - 30 &&
+                        y >= PG_BOX.y + 78 && y <= PG_BOX.y + PG_BOX.h - 40) {
+                        const col = Math.floor((x - (PG_BOX.x + 60)) / 58);
+                        const row = Math.floor((y - (PG_BOX.y + 90)) / 48);
+                        if (col >= 0 && col < 6 && row >= 0 && row < 4) {
+                            const idx = col + row * 6;
+                            if (idx < PG_POOL_SIZE) {
+                                const state = pgPoolStates[idx];
+                                if (state === 2) {
+                                    dotColor = PG_COLOR;
+                                    radius = dotRadius + 2;
+                                    glow = 0.4;
+                                    glowColor = PG_GLOW;
+                                } else if (state > 0) {
+                                    dotColor = 'rgba(0, 210, 211, 0.5)';
+                                    radius = dotRadius + 1;
+                                } else {
+                                    dotColor = 'rgba(0, 210, 211, 0.1)';
+                                }
+                            }
+                        }
+                    }
+
+                    if (glow > 0) {
+                        context.beginPath();
+                        context.arc(x, y, 12, 0, Math.PI * 2);
+                        context.fillStyle = `${glowColor}${glow})`;
+                        context.fill();
+                    }
+
+                    context.beginPath();
+                    context.arc(x, y, radius, 0, Math.PI * 2);
+                    context.fillStyle = dotColor;
+                    context.fill();
+                }
+            }
+        }
+
+        function drawActiveWires() {
+            pgPoolStates.forEach((state, globalIdx) => {
+                if (state === 0) return;
+                const serverId = Math.floor(globalIdx / POOL_PER_SERVER);
+                const localSlot = globalIdx % POOL_PER_SERVER;
+                const app = getAppSlotCoords(serverId, localSlot);
+                const pg = getPgSlotCoords(globalIdx);
+
+                context.beginPath();
+                context.strokeStyle = state === 3
+                    ? 'rgba(0, 210, 211, 0.12)'
+                    : `${SERVER_GLOW[serverId]}0.12)`;
+                context.lineWidth = 1;
+                context.setLineDash([3, 6]);
+                context.moveTo(app.x, app.y);
+                context.lineTo(pg.x, pg.y);
+                context.stroke();
+                context.setLineDash([]);
+            });
+        }
+
+        function pickServerAndSlot() {
+            for (let i = 0; i < NUM_SERVERS; i++) {
+                const sid = (roundRobinIdx + i) % NUM_SERVERS;
+                for (let slot = 0; slot < POOL_PER_SERVER; slot++) {
+                    const key = slotKey(sid, slot);
+                    if (serverPoolStates[sid][slot] === 0 && !inflightSlots.has(key)) {
+                        roundRobinIdx = (sid + 1) % NUM_SERVERS;
+                        return { serverId: sid, localSlot: slot };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function spawnQuery() {
+            const pick = pickServerAndSlot();
+            if (!pick) return;
+            lbTotalRouted++;
+            networkPackets.push(new NetworkPacket(pick.serverId, pick.localSlot));
+        }
+
+        function drawStats() {
+            const y = HEIGHT - 28;
+            const totalActive = pgPoolStates.filter(s => s > 0).length;
+            const executing = pgPoolStates.filter(s => s === 2).length;
+
+            context.font = '12px Courier New';
+            context.fillStyle = PG_COLOR;
+            context.fillText(
+                `PG Active Connections: ${totalActive}/${PG_POOL_SIZE}  |  Queries Executing: ${executing}`,
+                PG_BOX.x, y
+            );
+
+            context.font = '10px Courier New';
+            context.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            context.fillText(
+                'Clients → Load Balancer → App Servers → PostgreSQL → response returns through the same path',
+                28, HEIGHT - 10
+            );
+        }
+
+        function drawScene() {
+            context.fillStyle = '#070810';
+            context.fillRect(0, 0, WIDTH, HEIGHT);
+
+            drawLoadBalancer();
+            drawPgBox();
+            SERVERS.forEach(drawServerBox);
+            drawMatrixDots();
+            drawActiveWires();
+
+            if (Math.random() < 0.10) spawnQuery();
+
+            for (let i = networkPackets.length - 1; i >= 0; i--) {
+                if (!networkPackets[i].update()) {
+                    networkPackets.splice(i, 1);
+                } else {
+                    networkPackets[i].draw();
+                }
+            }
+
+            drawStats();
+            requestAnimationFrame(drawScene);
+        }
+
+        drawScene();
+    </script>
+</body>
+</html>
