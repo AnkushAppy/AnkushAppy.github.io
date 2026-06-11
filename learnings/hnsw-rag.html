@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HNSW &amp; RAG — Vector DB Pipeline</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #0a0d12;
+      color: #e8ecf4;
+      font-family: "DM Sans", system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 32px;
+      min-height: 100%;
+      overflow-x: auto;
+    }
+    h2 {
+      margin: 0 0 5px 0;
+      color: #3b9eff;
+      font-weight: 500;
+      font-size: 1.1rem;
+    }
+    #pipeline-status {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 13px;
+      color: #34d399;
+      margin-bottom: 15px;
+      background: #131820;
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid #1f2736;
+      max-width: 100%;
+      min-width: min(600px, 100%);
+      text-align: center;
+    }
+    canvas {
+      background: #131820;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      border-radius: 12px;
+      border: 1px solid #1f2736;
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Vector DB: Ingestion &amp; HNSW Search Pipeline</h2>
+  <div id="pipeline-status">Initializing System...</div>
+  <canvas id="pipelineCanvas" width="1000" height="680"></canvas>
+
+  <script>
+    const canvas = document.getElementById('pipelineCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('pipeline-status');
+
+    const CENTER_X = 680;
+    const LAYER_HEIGHTS = [530, 390, 250];
+    const PLANE_WIDTH = 400;
+    const PLANE_HEIGHT = 200;
+
+    function toIso(x, y, layerIdx) {
+      const isoX = CENTER_X + (x - y) * PLANE_WIDTH * 0.5;
+      const isoY = LAYER_HEIGHTS[layerIdx] + (x + y) * PLANE_HEIGHT * 0.5;
+      return { x: isoX, y: isoY };
+    }
+
+    let existingNodes = [
+      { id: 1, x: 0.15, y: 0.2, maxLayer: 0 },
+      { id: 2, x: 0.75, y: 0.15, maxLayer: 1 },
+      { id: 3, x: 0.3, y: 0.8, maxLayer: 2 },
+      { id: 4, x: 0.8, y: 0.7, maxLayer: 0 },
+      { id: 5, x: 0.5, y: 0.45, maxLayer: 1 },
+      { id: 6, x: 0.2, y: 0.5, maxLayer: 0 },
+      { id: 7, x: 0.6, y: 0.85, maxLayer: 0 }
+    ];
+
+    let newChunkNode = { id: 99, x: 0.55, y: 0.6, maxLayer: 1, color: '#a855f7' };
+    let queryVector = { x: 0.48, y: 0.52, color: '#f43f5e' };
+
+    let currentPhase = 'INGEST_START';
+    let phaseTimer = 0;
+    let globalTime = 0;
+
+    let flyingBlock = { x: 0, y: 0, targetX: 0, targetY: 0, progress: 0, active: false };
+    let trickleDot = { x: 0, y: 0, startLayer: 2, endLayer: 0, currentLayerFloat: 2, active: false, color: '#fff' };
+
+    function updatePipeline() {
+      globalTime++;
+      phaseTimer++;
+
+      switch (currentPhase) {
+        case 'INGEST_START':
+          statusDiv.innerText = "1. Ingestion: Raw Article document detected (Left Box).";
+          if (phaseTimer > 100) { currentPhase = 'CHUNK_SPLIT'; phaseTimer = 0; }
+          break;
+
+        case 'CHUNK_SPLIT':
+          statusDiv.innerText = "2. Chunking: Text broken down into smaller semantic sentences/blocks.";
+          if (phaseTimer > 100) { currentPhase = 'EMBED_GENERATE'; phaseTimer = 0; }
+          break;
+
+        case 'EMBED_GENERATE':
+          statusDiv.innerText = "3. Model Inference: Transforming text chunk into an Embedding vector.";
+          if (phaseTimer > 120) {
+            currentPhase = 'HNSW_PUSH';
+            phaseTimer = 0;
+            let entryIso = toIso(newChunkNode.x, newChunkNode.y, 2);
+            flyingBlock = {
+              x: 180, y: 430,
+              targetX: entryIso.x,
+              targetY: entryIso.y,
+              progress: 0, active: true
+            };
+          }
+          break;
+
+        case 'HNSW_PUSH':
+          statusDiv.innerText = "4. Indexing: Vector travels into the HNSW structure at the top layer location.";
+          if (flyingBlock.active) {
+            flyingBlock.progress += 0.025;
+            if (flyingBlock.progress >= 1) {
+              flyingBlock.active = false;
+              currentPhase = 'NODE_TRICKLE';
+              phaseTimer = 0;
+              trickleDot = {
+                x: newChunkNode.x, y: newChunkNode.y,
+                startLayer: 2, endLayer: 1,
+                currentLayerFloat: 2, active: true, color: '#a855f7'
+              };
+            }
+          }
+          break;
+
+        case 'NODE_TRICKLE':
+          statusDiv.innerText = "5. Multi-Layer Distribution: Node data trickles down vertically to assign itself to its designated lower layers.";
+          if (trickleDot.active) {
+            trickleDot.currentLayerFloat -= 0.02;
+            if (trickleDot.currentLayerFloat <= trickleDot.endLayer) {
+              trickleDot.active = false;
+              currentPhase = 'HNSW_REBUILD';
+              phaseTimer = 0;
+            }
+          }
+          break;
+
+        case 'HNSW_REBUILD':
+          statusDiv.innerText = "6. Graph Adaptation: Re-organizing proximity links on Layer 0 & 1 to incorporate the new vector.";
+          if (phaseTimer > 120) {
+            if (!existingNodes.some(n => n.id === 99)) existingNodes.push(newChunkNode);
+            currentPhase = 'QUERY_ARRIVE';
+            phaseTimer = 0;
+          }
+          break;
+
+        case 'QUERY_ARRIVE':
+          statusDiv.innerText = "7. Query Input: User search phrase or question received.";
+          if (phaseTimer > 100) { currentPhase = 'QUERY_EMBED'; phaseTimer = 0; }
+          break;
+
+        case 'QUERY_EMBED':
+          statusDiv.innerText = "8. Match Vector: Search string converted into a high-dimensional query coordinate.";
+          if (phaseTimer > 100) {
+            currentPhase = 'SEARCH_LAYER_2';
+            phaseTimer = 0;
+          }
+          break;
+
+        case 'SEARCH_LAYER_2':
+          statusDiv.innerText = "9. HNSW Step 1: Query vector targets Entry Point (Node 3) on the Sparse Express Layer 2.";
+          if (phaseTimer > 120) {
+            currentPhase = 'SEARCH_TRICKLE_A';
+            phaseTimer = 0;
+            let node3 = existingNodes.find(n => n.id === 3);
+            trickleDot = {
+              x: node3.x, y: node3.y,
+              startLayer: 2, endLayer: 1,
+              currentLayerFloat: 2, active: true, color: '#f43f5e'
+            };
+          }
+          break;
+
+        case 'SEARCH_TRICKLE_A':
+          statusDiv.innerText = "10. Routing Drip: Hit local minimum on Layer 2. Trickling query context down to Layer 1.";
+          if (trickleDot.active) {
+            trickleDot.currentLayerFloat -= 0.025;
+            if (trickleDot.currentLayerFloat <= trickleDot.endLayer) {
+              trickleDot.active = false;
+              currentPhase = 'SEARCH_LAYER_1';
+              phaseTimer = 0;
+            }
+          }
+          break;
+
+        case 'SEARCH_LAYER_1':
+          statusDiv.innerText = "11. HNSW Step 2: In Layer 1 (Bridge), graph routing shifts aggressively: Node 3 -> Node 5 -> New Node 99.";
+          if (phaseTimer > 150) {
+            currentPhase = 'SEARCH_TRICKLE_B';
+            phaseTimer = 0;
+            trickleDot = {
+              x: newChunkNode.x, y: newChunkNode.y,
+              startLayer: 1, endLayer: 0,
+              currentLayerFloat: 1, active: true, color: '#f43f5e'
+            };
+          }
+          break;
+
+        case 'SEARCH_TRICKLE_B':
+          statusDiv.innerText = "12. Final Routing Drip: Dropping down into the full base layer dataset map.";
+          if (trickleDot.active) {
+            trickleDot.currentLayerFloat -= 0.025;
+            if (trickleDot.currentLayerFloat <= trickleDot.endLayer) {
+              trickleDot.active = false;
+              currentPhase = 'SEARCH_LAYER_0';
+              phaseTimer = 0;
+            }
+          }
+          break;
+
+        case 'SEARCH_LAYER_0':
+          statusDiv.innerText = "13. HNSW Search Complete: Local base scans isolated nearest 3 neighbors (Highlighted in Red).";
+          if (phaseTimer > 200) {
+            existingNodes = existingNodes.filter(n => n.id !== 99);
+            currentPhase = 'INGEST_START';
+            phaseTimer = 0;
+          }
+          break;
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = currentPhase === 'INGEST_START' ? '#3b9eff' : '#1f2736';
+      ctx.fillStyle = currentPhase === 'INGEST_START' ? 'rgba(59,158,255,0.1)' : 'rgba(31,41,55,0.2)';
+      ctx.beginPath(); ctx.rect(40, 80, 140, 110); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8ecf4'; ctx.font = '12px sans-serif'; ctx.fillText("Raw Article Doc", 65, 110);
+      ctx.fillStyle = '#8b95a8'; ctx.fillText("[Text Paragraphs...]", 55, 145);
+
+      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(110, 195); ctx.lineTo(110, 230); ctx.stroke();
+
+      ctx.strokeStyle = currentPhase === 'CHUNK_SPLIT' ? '#3b9eff' : '#1f2736';
+      ctx.fillStyle = currentPhase === 'CHUNK_SPLIT' ? 'rgba(59,158,255,0.1)' : 'rgba(31,41,55,0.2)';
+      ctx.beginPath(); ctx.rect(40, 235, 140, 110); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8ecf4'; ctx.fillText("Semantic Chunks", 62, 260);
+      ctx.fillStyle = currentPhase === 'CHUNK_SPLIT' ? '#3b9eff' : '#5c6678';
+      ctx.fillRect(55, 280, 110, 12); ctx.fillRect(55, 298, 110, 12); ctx.fillRect(55, 316, 80, 12);
+
+      ctx.strokeStyle = '#22d3ee'; ctx.beginPath(); ctx.moveTo(110, 350); ctx.lineTo(110, 385); ctx.stroke();
+
+      ctx.strokeStyle = currentPhase === 'EMBED_GENERATE' ? '#a855f7' : '#1f2736';
+      ctx.fillStyle = currentPhase === 'EMBED_GENERATE' ? 'rgba(168,85,247,0.1)' : 'rgba(31,41,55,0.2)';
+      ctx.beginPath(); ctx.rect(40, 390, 140, 80); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8ecf4'; ctx.fillText("Embedding Model", 60, 420);
+      ctx.fillStyle = '#a855f7'; ctx.font = '10px monospace'; ctx.fillText("Dimensions Created", 55, 445);
+      ctx.font = '12px sans-serif';
+
+      if (flyingBlock.active) {
+        let currX = flyingBlock.x + (flyingBlock.targetX - flyingBlock.x) * flyingBlock.progress;
+        let currY = flyingBlock.y + (flyingBlock.targetY - flyingBlock.y) * flyingBlock.progress;
+        ctx.fillStyle = '#a855f7';
+        ctx.fillRect(currX - 25, currY - 12, 50, 24);
+        ctx.fillStyle = '#ffffff'; ctx.font = '9px monospace';
+        ctx.fillText("VECTOR", currX - 18, currY + 4);
+        ctx.font = '12px sans-serif';
+      }
+
+      let isQueryActive = ['QUERY_ARRIVE', 'QUERY_EMBED', 'SEARCH_LAYER_2', 'SEARCH_TRICKLE_A', 'SEARCH_LAYER_1', 'SEARCH_TRICKLE_B', 'SEARCH_LAYER_0'].includes(currentPhase);
+      ctx.strokeStyle = isQueryActive ? '#f43f5e' : '#1f2736';
+      ctx.fillStyle = isQueryActive ? 'rgba(244,63,94,0.1)' : 'rgba(31,41,55,0.2)';
+      ctx.beginPath(); ctx.rect(40, 520, 140, 90); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8ecf4'; ctx.fillText("Query Input Box", 65, 545);
+      ctx.fillStyle = currentPhase === 'QUERY_EMBED' ? '#f43f5e' : '#8b95a8';
+      ctx.fillText(currentPhase === 'QUERY_EMBED' ? "[ Vectorizing... ]" : '"Find similar context"', 50, 575);
+
+      if (['SEARCH_LAYER_2', 'SEARCH_TRICKLE_A', 'SEARCH_LAYER_1', 'SEARCH_TRICKLE_B', 'SEARCH_LAYER_0'].includes(currentPhase)) {
+        ctx.strokeStyle = 'rgba(244,63,94,0.3)'; ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(180, 565);
+        let entranceIso = toIso(0.3, 0.8, 2);
+        ctx.lineTo(entranceIso.x, entranceIso.y); ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      for (let layerIdx = 2; layerIdx >= 0; layerIdx--) {
+        let isActiveLayer = false;
+        if (currentPhase === 'SEARCH_LAYER_2' && layerIdx === 2) isActiveLayer = true;
+        if ((currentPhase === 'SEARCH_LAYER_1' || currentPhase === 'NODE_TRICKLE' || currentPhase === 'HNSW_REBUILD') && layerIdx === 1) isActiveLayer = true;
+        if (currentPhase === 'SEARCH_LAYER_0' && layerIdx === 0) isActiveLayer = true;
+
+        ctx.strokeStyle = isActiveLayer ? 'rgba(59, 158, 255, 0.6)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.fillStyle = isActiveLayer ? 'rgba(59, 158, 255, 0.04)' : 'rgba(255, 255, 255, 0.01)';
+        ctx.lineWidth = 1.5;
+
+        ctx.beginPath();
+        let p1 = toIso(0, 0, layerIdx); let p2 = toIso(1, 0, layerIdx);
+        let p3 = toIso(1, 1, layerIdx); let p4 = toIso(0, 1, layerIdx);
+        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+
+        ctx.fillStyle = isActiveLayer ? '#3b9eff' : '#5c6678'; ctx.font = '11px monospace';
+        ctx.fillText(`LAYER ${layerIdx} ${layerIdx === 2 ? '(Top Sparse / Express)' : layerIdx === 1 ? '(Middle Bridge)' : '(Base Layer / All Vectors)'}`, p2.x + 15, p2.y + 15);
+        ctx.font = '12px sans-serif';
+
+        let layerNodes = existingNodes.filter(n => n.maxLayer >= layerIdx);
+        if (currentPhase === 'HNSW_REBUILD' && layerIdx === 1) {
+          layerNodes = [...layerNodes, newChunkNode];
+        }
+
+        ctx.strokeStyle = isActiveLayer ? 'rgba(59,158,255,0.35)' : 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < layerNodes.length; i++) {
+          for (let j = i + 1; j < layerNodes.length; j++) {
+            let distance = Math.hypot(layerNodes[i].x - layerNodes[j].x, layerNodes[i].y - layerNodes[j].y);
+            let visibilityRange = layerIdx === 2 ? 0.8 : layerIdx === 1 ? 0.5 : 0.35;
+            if (distance < visibilityRange) {
+              let pt1 = toIso(layerNodes[i].x, layerNodes[i].y, layerIdx);
+              let pt2 = toIso(layerNodes[j].x, layerNodes[j].y, layerIdx);
+              ctx.beginPath(); ctx.moveTo(pt1.x, pt1.y); ctx.lineTo(pt2.x, pt2.y); ctx.stroke();
+            }
+          }
+        }
+
+        layerNodes.forEach(node => {
+          let pt = toIso(node.x, node.y, layerIdx);
+
+          let isResultNode = (currentPhase === 'SEARCH_LAYER_0' && layerIdx === 0 && (node.id === 5 || node.id === 7 || node.id === 99));
+          let isCurrentSearchHop = false;
+          if (currentPhase === 'SEARCH_LAYER_2' && layerIdx === 2 && node.id === 3) isCurrentSearchHop = true;
+          if (currentPhase === 'SEARCH_LAYER_1' && layerIdx === 1 && (node.id === 3 || node.id === 5 || node.id === 99)) isCurrentSearchHop = true;
+
+          if (isResultNode) {
+            ctx.fillStyle = '#f43f5e'; ctx.shadowBlur = 10; ctx.shadowColor = '#f43f5e';
+          } else if (isCurrentSearchHop) {
+            ctx.fillStyle = '#34d399'; ctx.shadowBlur = 8; ctx.shadowColor = '#34d399';
+          } else if (node.id === 99) {
+            ctx.fillStyle = '#a855f7';
+          } else {
+            ctx.fillStyle = isActiveLayer ? '#ffffff' : '#334155'; ctx.shadowBlur = 0;
+          }
+
+          ctx.beginPath(); ctx.arc(pt.x, pt.y, isResultNode ? 6 : 4, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0;
+
+          if (layerIdx > 0 && node.maxLayer >= layerIdx) {
+            let lowerPt = toIso(node.x, node.y, layerIdx - 1);
+            ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+            ctx.beginPath(); ctx.moveTo(pt.x, pt.y); ctx.lineTo(lowerPt.x, lowerPt.y); ctx.stroke();
+          }
+        });
+
+        if (['SEARCH_LAYER_2', 'SEARCH_LAYER_1', 'SEARCH_LAYER_0'].includes(currentPhase)) {
+          if ((currentPhase === 'SEARCH_LAYER_2' && layerIdx === 2) ||
+              (currentPhase === 'SEARCH_LAYER_1' && layerIdx === 1) ||
+              (currentPhase === 'SEARCH_LAYER_0' && layerIdx === 0)) {
+
+            let qPt = toIso(queryVector.x, queryVector.y, layerIdx);
+            ctx.fillStyle = '#f43f5e'; ctx.shadowBlur = 12; ctx.shadowColor = '#f43f5e';
+            ctx.beginPath(); ctx.arc(qPt.x, qPt.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+
+            ctx.strokeStyle = 'rgba(244,63,94,0.25)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(qPt.x, qPt.y, layerIdx === 0 ? 45 : 75, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+      }
+
+      if (trickleDot.active) {
+        let isoX = CENTER_X + (trickleDot.x - trickleDot.y) * PLANE_WIDTH * 0.5;
+
+        let baseHeightIdx = Math.floor(trickleDot.currentLayerFloat);
+        let nextHeightIdx = Math.ceil(trickleDot.currentLayerFloat);
+        let t = trickleDot.currentLayerFloat - baseHeightIdx;
+
+        let hBase = LAYER_HEIGHTS[baseHeightIdx] + (trickleDot.x + trickleDot.y) * PLANE_HEIGHT * 0.5;
+        let hNext = LAYER_HEIGHTS[nextHeightIdx] + (trickleDot.x + trickleDot.y) * PLANE_HEIGHT * 0.5;
+        let isoY = hBase + (hNext - hBase) * t;
+
+        ctx.fillStyle = trickleDot.color;
+        ctx.shadowBlur = 12; ctx.shadowColor = trickleDot.color;
+        ctx.beginPath(); ctx.arc(isoX, isoY, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = trickleDot.color + "55"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+        let startIsoY = LAYER_HEIGHTS[trickleDot.startLayer] + (trickleDot.x + trickleDot.y) * PLANE_HEIGHT * 0.5;
+        ctx.beginPath(); ctx.moveTo(isoX, startIsoY); ctx.lineTo(isoX, isoY); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    function engineLoop() {
+      updatePipeline();
+      draw();
+      requestAnimationFrame(engineLoop);
+    }
+
+    engineLoop();
+  </script>
+</body>
+</html>

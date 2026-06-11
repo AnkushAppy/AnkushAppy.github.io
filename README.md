@@ -1,6 +1,6 @@
 # AnkushAppy.github.io
 
-Personal site for [Ankush](https://github.com/AnkushAppy) — Principal Software Engineer at Apollo 24|7.
+Personal learning page for [Ankush](https://github.com/AnkushAppy) — visual deep-dives into AI, systems, and ideas worth understanding.
 
 ## Local preview
 

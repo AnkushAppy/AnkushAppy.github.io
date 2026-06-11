@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Ankush — Principal Software Engineer building AI systems at Apollo 24|7">
-  <title>Ankush | Principal Software Engineer</title>
+  <meta name="description" content="Ankush — a learner who builds visual deep-dives into AI, systems, and ideas worth understanding.">
+  <title>Ankush | Learning Page</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -18,272 +18,166 @@
         <span></span><span></span><span></span>
       </button>
       <ul class="nav-links">
-        <li><a href="#about">About</a></li>
-        <li><a href="#experience">Experience</a></li>
-        <li><a href="#skills">Skills</a></li>
-        <li><a href="#learnings">Learnings</a></li>
+        <li><a href="#about">Who I am</a></li>
+        <li><a href="#what-i-learn">What I learn</a></li>
+        <li><a href="#risks">Risks I take</a></li>
+        <li><a href="#topics">Topics</a></li>
       </ul>
     </nav>
   </header>
 
   <main>
-    <!-- Hero -->
     <section id="about" class="hero">
       <div class="container">
-        <p class="hero-eyebrow">Principal Software Engineer</p>
-        <h1 class="hero-title">Building AI systems that scale in healthcare</h1>
+        <p class="hero-eyebrow">Learning page</p>
+        <h1 class="hero-title">I learn by building things I can see</h1>
         <p class="hero-subtitle">
-          Architecting clinical intelligence, multi-agent chatbots, and RAG pipelines at
-          <strong>Apollo 24|7</strong>. 10+ years shipping production backends, ML systems, and data platforms.
+          Not a résumé. Not a portfolio of employers. This is a running log of what I'm curious about,
+          what I'm willing to bet on before it's proven, and the visual explanations I make to understand it.
         </p>
-        <div class="hero-meta">
-          <span class="meta-item">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            Bengaluru, India
-          </span>
-          <span class="meta-item">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
-            Full-time · On-site
-          </span>
+        <div class="hero-pillars">
+          <div class="pillar">
+            <span class="pillar-label">Orientation</span>
+            <span class="pillar-value">Depth over breadth</span>
+          </div>
+          <div class="pillar">
+            <span class="pillar-label">Method</span>
+            <span class="pillar-value">Prototype → benchmark → explain</span>
+          </div>
+          <div class="pillar">
+            <span class="pillar-label">Output</span>
+            <span class="pillar-value">Canvas notes &amp; deep-dives</span>
+          </div>
         </div>
         <div class="hero-actions">
-          <a href="#experience" class="btn btn-primary">View experience</a>
-          <a href="#learnings" class="btn btn-secondary">Explore learnings</a>
+          <a href="#topics" class="btn btn-primary">Browse topics</a>
+          <a href="#what-i-learn" class="btn btn-secondary">What I learn</a>
         </div>
       </div>
     </section>
 
-    <!-- Experience -->
-    <section id="experience" class="section experience-section">
+    <section id="what-i-learn" class="section learn-about-section">
       <div class="container">
         <div class="section-header">
-          <h2>Experience</h2>
-          <p>A decade of building backends, ML pipelines, and AI products from early-stage startups to enterprise scale.</p>
+          <h2>What I learn</h2>
+          <p>Topics I keep returning to — not because they're trendy, but because understanding them changes how I think.</p>
         </div>
-
-        <div class="timeline">
-          <!-- Apollo 24|7 -->
-          <article class="timeline-item featured">
-            <div class="timeline-marker">
-              <div class="company-logo apollo">
-                <img src="assets/img/logos/apollo.png" alt="Apollo 24|7 logo" width="56" height="56">
-              </div>
-            </div>
-            <div class="timeline-content">
-              <div class="timeline-header">
-                <div>
-                  <h3>Principal Software Engineer</h3>
-                  <p class="company">Apollo 24|7 · Full-time</p>
-                </div>
-                <time datetime="2020-04">Apr 2020 – Present · 6 yrs 3 mos</time>
-              </div>
-              <p class="location">Bengaluru, Karnataka, India · On-site</p>
-
-              <div class="role-block">
-                <h4>AskApollo — AI Clinical Chatbot</h4>
-                <ul>
-                  <li>Architected and deployed AskApollo, an AI clinical chatbot with complex orchestration and tool-calling workflows, handling <strong>4,000–5,000 chats/day</strong>.</li>
-                  <li>Expanded to multimodal inputs: voice-to-text, PDF parsing, and image processing. Engineered dialogue to deliver direct answers, dynamic follow-ups, and recommendations for doctors, lab tests, and medical products.</li>
-                  <li>Built an AI suggestions service across <strong>20+ entry points</strong> on the Apollo247 app, scaling to <strong>1–2 Lakh (100K–200K) API calls daily</strong>.</li>
-                  <li>Orchestrated integration of <strong>5+ domain-specific chatbots</strong> with seamless automated handoff for intent routing and context preservation.</li>
-                  <li>Incorporated advanced RAG pipelines (semantic search) and evaluation frameworks for response quality, safety, and hallucination guardrails.</li>
-                  <li>Optimized LLM inference with vLLM, achieving <strong>4× latency reduction</strong>. Prototyping autonomous workflows with DSPy.</li>
-                  <li>Developed <strong>Sympai</strong>, a multi-agent symptom checker powered by embeddings and semantic search, migrating from legacy Neo4j knowledge graph and NLP models.</li>
-                </ul>
-                <div class="stack-tags">
-                  <span>vLLM</span><span>LangGraph</span><span>Qwen/OpenAI</span><span>RAG</span><span>Multi-agent</span>
-                  <span>Golang</span><span>Python</span><span>Neo4j</span><span>MongoDB</span><span>Postgres</span>
-                  <span>BigQuery</span><span>Pub/Sub</span><span>Redis</span><span>GCP</span><span>ELK</span>
-                  <span>REST</span><span>GraphQL</span>
-                </div>
-              </div>
-
-              <div class="role-block">
-                <h4>CIE — Clinical Intelligence Engine</h4>
-                <ul>
-                  <li>Built symptom and disease prediction models by parsing real Apollo 247 patient data.</li>
-                  <li>Engineered pipelines for parsing, NER, aggregation, and modeling on patient data.</li>
-                  <li>Built pipeline to load parsed patient data into Neo4j knowledge graph.</li>
-                  <li>Developed internal tools for doctors to build and maintain the knowledge base.</li>
-                </ul>
-                <div class="stack-tags">
-                  <span>Golang</span><span>Python</span><span>MongoDB</span><span>Postgres</span><span>Neo4j</span>
-                  <span>BigQuery</span><span>Pub/Sub</span><span>Redis</span>
-                </div>
-              </div>
-            </div>
+        <div class="interest-grid">
+          <article class="interest-card">
+            <span class="interest-icon">◎</span>
+            <h3>How intelligence is built</h3>
+            <p>LLMs, agents, tool-calling, multi-step reasoning. I'm less interested in demos and more in orchestration — how systems decide, route, and recover.</p>
+            <ul class="interest-tags">
+              <li>LangGraph</li>
+              <li>Multi-agent</li>
+              <li>DSPy</li>
+            </ul>
           </article>
-
-          <!-- Tenzai Systems -->
-          <article class="timeline-item">
-            <div class="timeline-marker">
-              <div class="company-logo tenzai">
-                <img src="assets/img/logos/tenzai.png" alt="Tenzai Systems logo" width="56" height="56">
-              </div>
-            </div>
-            <div class="timeline-content">
-              <div class="timeline-header">
-                <div>
-                  <h3>Senior Software Engineer</h3>
-                  <p class="company">Tenzai Systems</p>
-                </div>
-                <time datetime="2019-06">Jun 2019 – Mar 2020 · 10 mos</time>
-              </div>
-              <p class="location">Bengaluru Area, India</p>
-              <p class="role-summary">Early-stage startup. Founding employee and backend engineer building enterprise virtual assistants.</p>
-              <ul>
-                <li>Scraped news, stocks, and market data periodically into MongoDB; trained models, tagged news, calculated statistics and insights; built chatbot with spaCy/NLTK, Socket.io, and Flask REST APIs; cached charts on Redis.</li>
-                <li>Scraped financial concall transcripts via Textract; extracted facts, Q&A, and names; built document search with Elasticsearch and Flask APIs.</li>
-                <li>Built Text-to-SQL parser/processor using spaCy for NER and POS tagging with pandas and numpy.</li>
-              </ul>
-              <div class="stack-tags">
-                <span>Python</span><span>Flask</span><span>Celery</span><span>Scrapy</span><span>MongoDB</span>
-                <span>Redis</span><span>Elasticsearch</span><span>Docker</span><span>GCP</span><span>spaCy</span>
-                <span>NLTK</span><span>PyTorch</span><span>Socket.io</span>
-              </div>
-            </div>
+          <article class="interest-card">
+            <span class="interest-icon">◈</span>
+            <h3>How retrieval actually works</h3>
+            <p>RAG isn't "embed and pray." I learn by tracing the full path — chunking, indexing, HNSW layers, eval suites, hallucination guardrails.</p>
+            <ul class="interest-tags">
+              <li>RAG</li>
+              <li>HNSW</li>
+              <li>Evals</li>
+            </ul>
           </article>
-
-          <!-- Marlabs -->
-          <article class="timeline-item">
-            <div class="timeline-marker">
-              <div class="company-logo marlabs">
-                <img src="assets/img/logos/marlabs.png" alt="Marlabs Inc. logo" width="56" height="56">
-              </div>
-            </div>
-            <div class="timeline-content">
-              <div class="timeline-header">
-                <div>
-                  <h3>Sr. Software Engineer</h3>
-                  <p class="company">Marlabs Inc.</p>
-                </div>
-                <time datetime="2017-03">Mar 2017 – May 2019 · 2 yrs 3 mos</time>
-              </div>
-              <p class="location">Bengaluru, Karnataka, India</p>
-              <ul>
-                <li>Designed and implemented backend REST APIs from scratch in Django (DRF) for mAdvisor.</li>
-                <li>Owned all backend activities: servers, databases, AWS, and documentation.</li>
-                <li>Dockerized system (API, databases, Hadoop); automated deployment.</li>
-                <li>Exploratory data analysis; legacy R-to-Python conversion; ML enthusiast.</li>
-              </ul>
-              <div class="stack-tags">
-                <span>Python</span><span>Django DRF</span><span>Celery</span><span>Redis</span><span>MySQL</span>
-                <span>AWS</span><span>Docker</span><span>Nginx</span><span>Airflow</span><span>Elasticsearch</span>
-                <span>PowerBI</span><span>Pandas</span>
-              </div>
-            </div>
+          <article class="interest-card">
+            <span class="interest-icon">⬡</span>
+            <h3>How systems perform under load</h3>
+            <p>Inference latency, throughput, parameter tuning. I benchmark before I commit — vLLM, batching strategies, the gap between "works locally" and "works at scale."</p>
+            <ul class="interest-tags">
+              <li>vLLM</li>
+              <li>Benchmarking</li>
+              <li>Infra</li>
+            </ul>
           </article>
-
-          <!-- Loktra -->
-          <article class="timeline-item">
-            <div class="timeline-marker">
-              <div class="company-logo loktra">
-                <img src="assets/img/logos/loktra.png" alt="Loktra logo" width="56" height="56">
-              </div>
-            </div>
-            <div class="timeline-content">
-              <div class="timeline-header">
-                <div>
-                  <h3>Software Engineer</h3>
-                  <p class="company">Loktra</p>
-                </div>
-                <time datetime="2016-07">Jul 2016 – Feb 2017 · 8 mos</time>
-              </div>
-              <p class="location">Bengaluru Area, India</p>
-              <ul>
-                <li>Early employee involved in concept and design of key features.</li>
-                <li>Designed and implemented Flask (Python) backend; owned servers, databases, AWS, and documentation.</li>
-                <li>Automated deployment with Fabric, Jenkins, and Docker.</li>
-                <li>Implemented UI features using Google/OSM maps and APIs.</li>
-              </ul>
-            </div>
-          </article>
-
-          <!-- Dolcera -->
-          <article class="timeline-item">
-            <div class="timeline-marker">
-              <div class="company-logo dolcera">
-                <img src="assets/img/logos/dolcera.png" alt="Dolcera logo" width="56" height="56">
-              </div>
-            </div>
-            <div class="timeline-content">
-              <div class="timeline-header">
-                <div>
-                  <h3>Analyst</h3>
-                  <p class="company">Dolcera</p>
-                </div>
-                <time datetime="2014-07">Jul 2014 – Jun 2016 · 2 yrs</time>
-              </div>
-              <p class="location">Greater Hyderabad Area, India</p>
-              <ul>
-                <li>Landscape analysis; validity/invalidity patent searches.</li>
-                <li>Managed patent portfolios for multiple companies.</li>
-                <li>Experience with Micropat, WIPO, JP, EPSpace, Delphion, and non-patent databases.</li>
-              </ul>
-            </div>
+          <article class="interest-card">
+            <span class="interest-icon">◇</span>
+            <h3>How knowledge is structured</h3>
+            <p>Knowledge graphs, embeddings, semantic search. Moving from rigid schemas to flexible retrieval — and knowing when each approach breaks.</p>
+            <ul class="interest-tags">
+              <li>Neo4j</li>
+              <li>Embeddings</li>
+              <li>Graphs</li>
+            </ul>
           </article>
         </div>
       </div>
     </section>
 
-    <!-- Skills -->
-    <section id="skills" class="section skills-section">
+    <section id="risks" class="section risks-section">
       <div class="container">
         <div class="section-header">
-          <h2>Core Expertise</h2>
-          <p>Spanning AI/ML systems, backend engineering, and data infrastructure.</p>
+          <h2>Risks I take</h2>
+          <p>Learning only happens at the edge of what you already know. These are the bets I'm comfortable making.</p>
         </div>
-        <div class="skills-grid">
-          <div class="skill-card">
-            <h3>AI &amp; ML</h3>
-            <p>LLMs, RAG, multi-agent systems, vLLM, DSPy, embeddings, semantic search, evaluation frameworks, NLP/NER</p>
-          </div>
-          <div class="skill-card">
-            <h3>Backend &amp; APIs</h3>
-            <p>Golang, Python, Flask, Django DRF, REST, GraphQL, microservices, Celery, Socket.io</p>
-          </div>
-          <div class="skill-card">
-            <h3>Data &amp; Infra</h3>
-            <p>Neo4j, MongoDB, Postgres, BigQuery, Redis, Elasticsearch, Pub/Sub, GCP, AWS, Docker, ELK</p>
-          </div>
-          <div class="skill-card">
-            <h3>Engineering</h3>
-            <p>System design, orchestration, tool-calling workflows, knowledge graphs, data pipelines, benchmarking</p>
-          </div>
+        <div class="risks-list">
+          <article class="risk-item">
+            <div class="risk-marker">01</div>
+            <div class="risk-body">
+              <h3>Prototype before the playbook exists</h3>
+              <p>I try frameworks and ideas while they're still rough — DSPy for autonomous workflows, new agent patterns, experimental eval pipelines. I'd rather break something in a notebook than ship blind faith to production.</p>
+            </div>
+          </article>
+          <article class="risk-item">
+            <div class="risk-marker">02</div>
+            <div class="risk-body">
+              <h3>Replace what already works</h3>
+              <p>Migrating legacy systems — Neo4j knowledge graphs to embedding-based search, old NLP pipelines to LLM orchestration. The risk is downtime and regression; the reward is a system you actually understand.</p>
+            </div>
+          </article>
+          <article class="risk-item">
+            <div class="risk-marker">03</div>
+            <div class="risk-body">
+              <h3>Benchmark, then decide</h3>
+              <p>I don't pick tools by hype. I run latency sweeps, retrieval@k evals, and load tests — then commit. The risk is time spent measuring; the alternative is guessing at scale.</p>
+            </div>
+          </article>
+          <article class="risk-item">
+            <div class="risk-marker">04</div>
+            <div class="risk-body">
+              <h3>Explain it visually or I don't get it</h3>
+              <p>Every topic on this page has a canvas — animated pipelines, isometric graphs, before/after charts. If I can't draw the flow, I probably don't understand it yet.</p>
+            </div>
+          </article>
         </div>
       </div>
     </section>
 
-    <!-- Learnings -->
-    <section id="learnings" class="section learnings-section">
+    <section id="topics" class="section learnings-section">
       <div class="container learnings-layout">
-        <aside class="learnings-toc" aria-label="Learnings table of contents">
+        <aside class="learnings-toc" aria-label="Topics table of contents">
           <div class="toc-sticky">
-            <h2>Learnings</h2>
-            <p class="toc-desc">Notes, explorations, and visual deep-dives. New topics appear here as they're added.</p>
+            <h2>Topics</h2>
+            <p class="toc-desc">Visual deep-dives. Click a topic to jump below — new ones get added as I learn.</p>
             <nav>
-              <ol id="learnings-toc-list" class="toc-list">
-                <!-- Topics are auto-populated from learning articles below -->
-              </ol>
+              <ol id="learnings-toc-list" class="toc-list"></ol>
             </nav>
-            <p class="toc-hint">Copy <code>learnings/_template.html</code> to add new topics.</p>
+            <p class="toc-hint">Copy <code>learnings/_template.html</code> to add a topic.</p>
           </div>
         </aside>
 
         <div class="learnings-content">
-          <!--
-            ADD NEW LEARNING TOPICS HERE
-            Copy learnings/_template.html, save as learnings/your-topic.html,
-            then add an article block below following this pattern.
-          -->
+          <article id="topic-hnsw-rag" class="learning-topic" data-title="HNSW &amp; RAG Pipeline">
+            <header class="learning-header">
+              <span class="learning-tag">Vector DB / RAG</span>
+              <h3>HNSW &amp; RAG Pipeline</h3>
+              <p>End-to-end animated walkthrough: document ingestion, chunking, embedding, HNSW indexing, and layered approximate nearest-neighbor search.</p>
+            </header>
+            <div class="learning-canvas learning-canvas--tall">
+              <iframe src="learnings/hnsw-rag.html" title="HNSW and RAG pipeline visualization" loading="lazy"></iframe>
+            </div>
+          </article>
 
           <article id="topic-rag-evals" class="learning-topic" data-title="RAG Evaluation Frameworks">
             <header class="learning-header">
               <span class="learning-tag">AI / RAG</span>
               <h3>RAG Evaluation Frameworks</h3>
-              <p>Benchmarking retrieval quality, hallucination guardrails, and response safety in production clinical chatbots.</p>
+              <p>How I think about retrieval quality — relevance scoring, faithfulness checks, hallucination guardrails, and golden test suites.</p>
             </header>
-            <div class="learning-canvas" data-src="learnings/rag-evals.html">
+            <div class="learning-canvas">
               <iframe src="learnings/rag-evals.html" title="RAG Evaluation Frameworks visualization" loading="lazy"></iframe>
             </div>
           </article>
@@ -292,15 +186,15 @@
             <header class="learning-header">
               <span class="learning-tag">LLM / Infra</span>
               <h3>vLLM Inference Optimization</h3>
-              <p>Parameter tuning and benchmarking that achieved 4× latency reduction for high-throughput chat serving.</p>
+              <p>Parameter tuning and benchmarking — PagedAttention, batch sizing, and the path to 4× latency reduction.</p>
             </header>
-            <div class="learning-canvas" data-src="learnings/vllm-optimization.html">
+            <div class="learning-canvas">
               <iframe src="learnings/vllm-optimization.html" title="vLLM Optimization visualization" loading="lazy"></iframe>
             </div>
           </article>
 
           <div class="learnings-empty" id="learnings-empty" hidden>
-            <p>No learning topics yet. Add your first topic to get started.</p>
+            <p>No topics yet. The first canvas deep-dive goes here.</p>
           </div>
         </div>
       </div>
