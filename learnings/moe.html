@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mixture of Experts (MoE) Architecture</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 24px 16px;
+            background-color: #0a0d12;
+            color: #e8ecf4;
+            font-family: "DM Sans", system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100%;
+            overflow-x: auto;
+        }
+        h1 {
+            margin-bottom: 5px;
+            font-size: 1.8rem;
+            color: #a855f7;
+        }
+        p {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #94a3b8;
+            font-size: 0.95rem;
+            text-align: center;
+            max-width: 800px;
+        }
+        #canvas-container {
+            background: #111827;
+            border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            border: 1px solid #1f2937;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 20px;
+            background: #1f2937;
+            padding: 10px 25px;
+            border-radius: 30px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Mixture of Experts (MoE) Architecture</h1>
+    <p>A first-principles simulation of conditional routing. Instead of activating the entire network, the <strong>Gating Network</strong> evaluates incoming tokens and routes them to the <strong>Top-2 most qualified Expert networks</strong>, keeping compute costs fixed while scaling total parameter capacity.</p>
+
+    <div id="canvas-container">
+        <canvas id="moeCanvas" width="960" height="540"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #38bdf8;"></div>
+            <span>Token Input / Output</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ec4899;"></div>
+            <span>Gating (Router) Layer</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #22c55e;"></div>
+            <span>Active Experts (Compute)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #374151;"></div>
+            <span>Inactive Experts (Idling)</span>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('moeCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Layout Parameters
+        const nodes = {
+            input: { x: 80, y: 270, label: "Input Token Stream" },
+            attention: { x: 240, y: 270, label: "Self-Attention Block", sub: "Dense (Processes all tokens)" },
+            router: { x: 440, y: 270, label: "Gating Network (Router)", sub: "Softmax Weighting Block" },
+            experts: [
+                { id: 1, x: 680, y: 80, label: "Expert 1: Code / Logic", type: 'inactive', val: 0.05 },
+                { id: 2, x: 680, y: 170, label: "Expert 2: Creative Writing", type: 'inactive', val: 0.12 },
+                { id: 3, x: 680, y: 260, label: "Expert 3: Math / Reasoning", type: 'inactive', val: 0.68 },
+                { id: 4, x: 680, y: 350, label: "Expert 4: Translation", type: 'inactive', val: 0.03 },
+                { id: 5, x: 680, y: 440, label: "Expert 5: Fact Retrieval", type: 'inactive', val: 0.82 }
+            ],
+            combine: { x: 860, y: 270, label: "Weighted Sum Node", sub: "Combines Top-K outputs" }
+        };
+
+        let tokens = [];
+        let tokenIndex = 0;
+        const inputTokensList = [
+            { text: "if (x > 5)", targetExperts: [0, 2], colors: ["#38bdf8", "#22c55e"] },
+            { text: "Once upon a time", targetExperts: [1, 4], colors: ["#ec4899", "#eab308"] },
+            { text: "Solve 23x + 9 = 55", targetExperts: [2, 4], colors: ["#a855f7", "#38bdf8"] },
+            { text: "Traduis en français", targetExperts: [3, 4], colors: ["#22c55e", "#ec4899"] },
+            { text: "Capital of France", targetExperts: [4, 1], colors: ["#eab308", "#a855f7"] }
+        ];
+
+        // Trigger loop scheduling parameters
+        let cycleTimer = 0;
+
+        function spawnToken() {
+            let current = inputTokensList[tokenIndex];
+            tokens.push({
+                x: nodes.input.x,
+                y: nodes.input.y,
+                text: current.text,
+                stage: 'input', // input, attention, router, routing, expert, combining, done
+                targets: current.targetExperts,
+                progress: 0,
+                speed: 3.5,
+                expertProgress: {},
+                yOffsets: []
+            });
+            tokenIndex = (tokenIndex + 1) % inputTokensList.length;
+        }
+
+        function drawRoundRect(x, y, w, h, r, fill, stroke, strokeWidth = 2) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+            ctx.fillStyle = fill;
+            ctx.fill();
+            if (stroke) {
+                ctx.strokeStyle = stroke;
+                ctx.lineWidth = strokeWidth;
+                ctx.stroke();
+            }
+        }
+
+        function drawPipeline(x1, y1, x2, y2, active = false, color = "#1f2937") {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = active ? color : "#1f2937";
+            ctx.lineWidth = active ? 3 : 1.5;
+            ctx.stroke();
+        }
+
+        function updateAndRender() {
+            // Frame Clear
+            ctx.fillStyle = "#090d16";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Periodically cycle incoming tokens
+            cycleTimer++;
+            if (cycleTimer % 110 === 0) {
+                spawnToken();
+            }
+
+            // 1. Reset Expert Activity states dynamically
+            nodes.experts.forEach(exp => {
+                exp.type = 'inactive';
+                exp.val = 0.02 + Math.random() * 0.05; // Base noise probabilities
+            });
+
+            // Inspect tokens to flip active rendering states for matching expert layers
+            tokens.forEach(t => {
+                if (t.stage === 'routing' || t.stage === 'expert') {
+                    t.targets.forEach((expIdx, idx) => {
+                        nodes.experts[expIdx].type = 'active';
+                        nodes.experts[expIdx].val = idx === 0 ? 0.74 : 0.21; // Simulate softmax allocation probabilities
+                    });
+                }
+            });
+
+            // 2. Draw Wire Channels
+            // Base structural conduits
+            drawPipeline(nodes.input.x + 60, nodes.input.y, nodes.attention.x - 70);
+            drawPipeline(nodes.attention.x + 70, nodes.attention.y, nodes.router.x - 85);
+
+            nodes.experts.forEach(exp => {
+                let isChannelActive = false;
+                tokens.forEach(t => {
+                    if ((t.stage === 'routing' || t.stage === 'expert') && t.targets.includes(exp.id - 1)) {
+                        isChannelActive = true;
+                    }
+                });
+                drawPipeline(nodes.router.x + 85, nodes.router.y, exp.x - 90, exp.y, isChannelActive, "#a855f7");
+                drawPipeline(exp.x + 90, exp.y, nodes.combine.x - 60, nodes.combine.y, isChannelActive, "#22c55e");
+            });
+
+            // 3. Render Module Interfaces
+            // Dense attention block
+            drawRoundRect(nodes.attention.x - 70, nodes.attention.y - 35, 140, 70, 8, "#111827", "#3b82f6");
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 12px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(nodes.attention.label, nodes.attention.x, nodes.attention.y - 5);
+            ctx.fillStyle = "#64748b";
+            ctx.font = "10px monospace";
+            ctx.fillText(nodes.attention.sub, nodes.attention.x, nodes.attention.y + 15);
+
+            // Gating/Router block
+            drawRoundRect(nodes.router.x - 85, nodes.router.y - 40, 170, 80, 8, "#111827", "#ec4899");
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 12px sans-serif";
+            ctx.fillText(nodes.router.label, nodes.router.x, nodes.router.y - 8);
+            ctx.fillStyle = "#64748b";
+            ctx.font = "10px monospace";
+            ctx.fillText(nodes.router.sub, nodes.router.x, nodes.router.y + 12);
+            ctx.fillStyle = "#ec4899";
+            ctx.font = "9px monospace";
+            ctx.fillText("Select Top-2 Experts", nodes.router.x, nodes.router.y + 26);
+
+            // Sparse Expert Array blocks
+            nodes.experts.forEach(exp => {
+                let stroke = exp.type === 'active' ? "#22c55e" : "#374151";
+                let fill = exp.type === 'active' ? "#052e16" : "#111827";
+                drawRoundRect(exp.x - 90, exp.y - 25, 180, 50, 6, fill, stroke, exp.type === 'active' ? 2 : 1);
+                
+                ctx.fillStyle = exp.type === 'active' ? "#f8fafc" : "#64748b";
+                ctx.font = "bold 11px sans-serif";
+                ctx.textAlign = "left";
+                ctx.fillText(exp.label, exp.x - 78, exp.y + 4);
+
+                // Probability value tags
+                ctx.fillStyle = exp.type === 'active' ? "#22c55e" : "#4b5563";
+                ctx.font = "10px monospace";
+                ctx.textAlign = "right";
+                ctx.fillText(`p=${exp.val.toFixed(2)}`, exp.x + 80, exp.y + 4);
+            });
+
+            // Combiner layer block
+            ctx.textAlign = "center";
+            drawRoundRect(nodes.combine.x - 60, nodes.combine.y - 35, 120, 70, 8, "#111827", "#14b8a6");
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 11px sans-serif";
+            ctx.fillText(nodes.combine.label, nodes.combine.x, nodes.combine.y - 5);
+            ctx.fillStyle = "#64748b";
+            ctx.font = "10px monospace";
+            ctx.fillText(nodes.combine.sub, nodes.combine.x, nodes.combine.y + 15);
+
+            // 4. Update and Animate Tokens Pipelines Flow
+            for (let i = tokens.length - 1; i >= 0; i--) {
+                let t = tokens[i];
+
+                if (t.stage === 'input') {
+                    t.x += t.speed;
+                    if (t.x >= nodes.attention.x) {
+                        t.stage = 'attention';
+                    }
+                } else if (t.stage === 'attention') {
+                    t.x += t.speed;
+                    if (t.x >= nodes.router.x) {
+                        t.stage = 'router';
+                    }
+                } else if (t.stage === 'router') {
+                    // Split single token execution stream into 2 Top-K active pathways
+                    t.stage = 'routing';
+                    t.progress = 0;
+                } else if (t.stage === 'routing') {
+                    t.progress += 0.025; // Interpolation tracking parameter
+                    if (t.progress >= 1) {
+                        t.stage = 'expert';
+                        t.progress = 0;
+                    }
+                } else if (t.stage === 'expert') {
+                    t.progress += 0.03;
+                    if (t.progress >= 1) {
+                        t.stage = 'combining';
+                        t.progress = 0;
+                    }
+                } else if (t.stage === 'combining') {
+                    t.progress += 0.025;
+                    if (t.progress >= 1) {
+                        t.stage = 'done';
+                    }
+                }
+
+                // Render floating active tokens on canvas space
+                if (t.stage !== 'done') {
+                    ctx.textAlign = "center";
+                    
+                    if (t.stage === 'routing') {
+                        // Render splitting particles cascading toward chosen experts
+                        t.targets.forEach(expIdx => {
+                            let exp = nodes.experts[expIdx];
+                            let px = nodes.router.x + (exp.x - 90 - nodes.router.x) * t.progress;
+                            let py = nodes.router.y + (exp.y - nodes.router.y) * t.progress;
+                            
+                            drawRoundRect(px - 45, py - 12, 90, 24, 4, "#a855f7", null);
+                            ctx.fillStyle = "#f8fafc";
+                            ctx.font = "bold 9px monospace";
+                            ctx.fillText(t.text, px, py + 4);
+                        });
+                    } else if (t.stage === 'expert') {
+                        // Render items localized processing inside target expert slots
+                        t.targets.forEach(expIdx => {
+                            let exp = nodes.experts[expIdx];
+                            let px = (exp.x - 90) + (180 * t.progress);
+                            let py = exp.y;
+
+                            ctx.shadowColor = "#22c55e";
+                            ctx.shadowBlur = 6;
+                            ctx.fillStyle = "#22c55e";
+                            ctx.fillRect(px - 3, py - 20, 6, 40);
+                            ctx.shadowBlur = 0;
+                        });
+                    } else if (t.stage === 'combining') {
+                        // Render processed expert states joining down into unified weighted sum block
+                        t.targets.forEach(expIdx => {
+                            let exp = nodes.experts[expIdx];
+                            let px = (exp.x + 90) + (nodes.combine.x - 60 - (exp.x + 90)) * t.progress;
+                            let py = exp.y + (nodes.combine.y - exp.y) * t.progress;
+
+                            drawRoundRect(px - 45, py - 12, 90, 24, 4, "#22c55e", null);
+                            ctx.fillStyle = "#f8fafc";
+                            ctx.font = "bold 9px monospace";
+                            ctx.fillText(t.text, px, py + 4);
+                        });
+                    } else {
+                        // Regular single-node scalar values pipeline translation
+                        drawRoundRect(t.x - 55, t.y - 14, 110, 28, 4, "#38bdf8", null);
+                        ctx.fillStyle = "#0f172a";
+                        ctx.font = "bold 10px monospace";
+                        ctx.fillText(t.text, t.x, t.y + 4);
+                    }
+                } else {
+                    // Splice finished components out of tracking registers
+                    tokens.splice(i, 1);
+                }
+            }
+
+            // 5. General Info Overlay Panels
+            ctx.fillStyle = "#111827";
+            ctx.fillRect(20, 20, 220, 85);
+            ctx.strokeStyle = "#1f2937";
+            ctx.strokeRect(20, 20, 220, 85);
+
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#a855f7";
+            ctx.font = "bold 11px sans-serif";
+            ctx.fillText("SPARSE MOE PROPERTIES", 32, 40);
+            
+            ctx.fillStyle = "#94a3b8";
+            ctx.font = "10px monospace";
+            ctx.fillText("● Total Capacity: 8 Experts", 32, 60);
+            ctx.fillText("● Active Load: 2 Experts/Token", 32, 75);
+            ctx.fillText("● Compute Footprint: Fixed FLOPs", 32, 90);
+
+            requestAnimationFrame(updateAndRender);
+        }
+
+        // Initialize First Flow Object Trigger
+        spawnToken();
+        updateAndRender();
+    </script>
+</body>
+</html>

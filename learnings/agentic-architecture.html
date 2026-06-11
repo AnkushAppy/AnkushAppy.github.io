@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Architectures Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0a0d12;
+            color: #e8ecf4;
+            font-family: "DM Sans", system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100%;
+            padding: 24px 16px;
+            overflow-x: auto;
+        }
+        h2 { margin: 10px 0 5px 0; color: #38bdf8; font-weight: 400; }
+        .container { display: flex; gap: 20px; background: #111827; padding: 20px; border-radius: 12px; border: 1px solid #1f2937; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+        .menu { display: flex; flex-direction: column; gap: 12px; width: 220px; }
+        .menu-btn { background: #1f2937; color: #94a3b8; border: 1px solid #374151; padding: 12px; text-align: left; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .menu-btn:hover { background: #2d3748; color: #e2e8f0; }
+        .menu-btn.active { background: #0284c7; color: #ffffff; border-color: #38bdf8; }
+        .description-box { margin-top: 10px; background: #1f2937; padding: 12px; border-radius: 8px; font-size: 13px; color: #94a3b8; line-height: 1.4; border-left: 4px solid #38bdf8; min-height: 100px;}
+        canvas { background: #0f172a; border-radius: 8px; border: 1px solid #1e293b; display: block; }
+    </style>
+</head>
+<body>
+
+    <h2>Interactive Agentic Architecture Simulator</h2>
+    <div class="container">
+        <div class="menu">
+            <button class="menu-btn active" onclick="switchArch('router', this)">1. Router Pattern</button>
+            <button class="menu-btn" onclick="switchArch('orchestrator', this)">2. Orchestrator-Workers</button>
+            <button class="menu-btn" onclick="switchArch('reflection', this)">3. Reflection Loop</button>
+            <div class="description-box" id="desc-box">Loading...</div>
+        </div>
+        <canvas id="agentCanvas" width="750" height="500"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('agentCanvas');
+        const ctx = canvas.getContext('2d');
+        const descBox = document.getElementById('desc-box');
+
+        let currentArch = 'router';
+        let timeline = 0;
+
+        const descriptions = {
+            router: "**Router Pattern**:<br>A lightweight classification step (LLM Router) inspects the user input and chooses the single best downstream specialist agent to handle the task. Minimizes overhead by only calling required components.",
+            orchestrator: "**Orchestrator-Workers**:<br>A central Orchestrator LLM breaks a complex prompt into distinct sub-tasks, fires them off to worker agents in parallel, and merges their outputs into a unified final summary response.",
+            reflection: "**Reflection Loop**:<br>An Generator Agent designs an initial output, which is immediately intercepted by a Critic Agent. The Critic evaluates weaknesses, sends refined instructions back to the Generator, looping until quality passes."
+        };
+
+        function switchArch(arch, element) {
+            currentArch = arch;
+            timeline = 0;
+            document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+            descBox.innerHTML = descriptions[arch];
+        }
+        
+        descBox.innerHTML = descriptions['router']; // Initial load
+
+        // Helper to draw clean stylized boxes
+        function drawBlock(x, y, w, h, label, color, subtitle="") {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = color;
+            ctx.fillStyle = "rgba(31, 41, 55, 0.8)";
+            
+            // Draw rounded rectangle manually for compatibility
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 13px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(label, x + w/2, y + h/2 + (subtitle ? -4 : 4));
+            
+            if (subtitle) {
+                ctx.fillStyle = "#94a3b8";
+                ctx.font = "10px monospace";
+                ctx.fillText(subtitle, x + w/2, y + h/2 + 12);
+            }
+        }
+
+        function drawAnimatedArrow(x1, y1, x2, y2, active, activeColor="#38bdf8") {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = active ? activeColor : "#334155";
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+
+            // Moving dot indicator along the path
+            if (active) {
+                let speed = 0.015;
+                let progress = (timeline * speed) % 1;
+                let dotX = x1 + (x2 - x1) * progress;
+                let dotY = y1 + (y2 - y1) * progress;
+                
+                ctx.fillStyle = activeColor;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = activeColor;
+                ctx.beginPath();
+                ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function animate() {
+            timeline++;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Universal Input/Output blocks
+            drawBlock(40, 220, 100, 50, "User Input", "#64748b", "Prompt Box");
+            drawBlock(610, 220, 100, 50, "Final Output", "#10b981", "Response");
+
+            if (currentArch === 'router') {
+                // Architectural Layout Positions
+                let routerActive = (timeline % 300 < 100);
+                let codingActive = (timeline % 300 >= 100 && timeline % 300 < 200);
+                let outActive    = (timeline % 300 >= 200);
+
+                // Blocks
+                drawBlock(220, 210, 110, 70, "LLM Router", routerActive ? "#38bdf8" : "#1e293b", "Intent Classifier");
+                drawBlock(420, 100, 120, 60, "Coding Agent", codingActive ? "#a855f7" : "#1e293b", "Specialist A");
+                drawBlock(420, 215, 120, 60, "Analytics Agent", "#1e293b", "Specialist B");
+                drawBlock(420, 330, 120, 60, "Support Agent", "#1e293b", "Specialist C");
+
+                // Connections
+                drawAnimatedArrow(140, 245, 220, 245, routerActive);
+                
+                // Router to Coding Agent pathway choice (Dynamic simulation selection)
+                drawAnimatedArrow(330, 230, 420, 130, codingActive, "#a855f7");
+                drawAnimatedArrow(540, 130, 610, 235, outActive, "#10b981");
+
+            } else if (currentArch === 'orchestrator') {
+                let stage = timeline % 350;
+                let p1 = stage < 80;
+                let p2 = stage >= 80 && stage < 220;
+                let p3 = stage >= 220;
+
+                // Main Core Blocks
+                drawBlock(210, 210, 120, 70, "Orchestrator", p1 ? "#38bdf8" : "#1e293b", "Planner LLM");
+                drawBlock(420, 100, 110, 55, "Worker Node 1", p2 ? "#eab308" : "#1e293b", "Task Breakout");
+                drawBlock(420, 218, 110, 55, "Worker Node 2", p2 ? "#eab308" : "#1e293b", "Task Breakout");
+                drawBlock(420, 335, 110, 55, "Worker Node 3", p2 ? "#eab308" : "#1e293b", "Task Breakout");
+
+                // Data Streaming Path lines
+                drawAnimatedArrow(140, 245, 210, 245, p1);
+                
+                // Fan-out to multi-threading workers
+                drawAnimatedArrow(330, 230, 420, 130, p2, "#eab308");
+                drawAnimatedArrow(330, 245, 420, 245, p2, "#eab308");
+                drawAnimatedArrow(330, 260, 420, 360, p2, "#eab308");
+
+                // Fan-in collection back to Synthesis endpoint
+                drawAnimatedArrow(530, 130, 610, 235, p3, "#10b981");
+                drawAnimatedArrow(530, 245, 610, 245, p3, "#10b981");
+                drawAnimatedArrow(530, 360, 610, 255, p3, "#10b981");
+
+            } else if (currentArch === 'reflection') {
+                let loopStage = timeline % 400;
+                let inputPhase = loopStage < 70;
+                let genPhase = (loopStage >= 70 && loopStage < 160) || (loopStage >= 240 && loopStage < 320);
+                let critPhase = (loopStage >= 160 && loopStage < 240);
+                let completePhase = loopStage >= 320;
+
+                // Blocks
+                drawBlock(210, 150, 130, 65, "Generator Agent", genPhase ? "#38bdf8" : "#1e293b", "Drafts Solutions");
+                drawBlock(420, 280, 130, 65, "Critic / Evaluator", critPhase ? "#f43f5e" : "#1e293b", "Code Quality Review");
+
+                // Entry Stream
+                drawAnimatedArrow(140, 245, 210, 190, inputPhase);
+
+                // The Loop Paths
+                // Forward pass (Gen -> Critic)
+                drawAnimatedArrow(340, 180, 420, 290, genPhase, "#38bdf8");
+                // Feedback Loop backward pass (Critic -> Gen)
+                drawAnimatedArrow(420, 320, 260, 215, critPhase, "#f43f5e");
+
+                // Exit Path when score condition threshold clears successfully
+                drawAnimatedArrow(340, 190, 610, 245, completePhase, "#10b981");
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

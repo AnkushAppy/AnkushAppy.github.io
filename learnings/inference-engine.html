@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Inference Engine Architecture</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 24px 16px;
+            background-color: #0a0d12;
+            color: #e8ecf4;
+            font-family: "DM Sans", system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100%;
+            overflow-x: auto;
+        }
+        h1 {
+            margin-bottom: 5px;
+            font-size: 1.8rem;
+            color: #38bdf8;
+        }
+        p {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #94a3b8;
+            font-size: 0.95rem;
+            text-align: center;
+            max-width: 800px;
+        }
+        #canvas-container {
+            position: relative;
+            background: #1e293b;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+            border: 1px solid #334155;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+            background: #1e293b;
+            padding: 10px 20px;
+            border-radius: 30px;
+            border: 1px solid #334155;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Modern LLM Inference Engine Execution Flow</h1>
+    <p>A live-animated, first-principles visualization of token execution. Watch data transition from the parallel <strong>Prefill Phase</strong> (Compute-bound) into the streaming <strong>Decode Loop</strong> (Memory-bound) while <strong>PagedAttention</strong> virtualizes memory dynamically.</p>
+
+    <div id="canvas-container">
+        <canvas id="engineCanvas" width="1000" height="620"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #38bdf8; border: 1px solid #0ea5e9;"></div>
+            <span>Data / IO</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #fb923c; border: 1px solid #ea580c;"></div>
+            <span>Compute Kernels</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #eab308; border: 1px solid #ca8a04;"></div>
+            <span>Memory / Cache</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #a855f7; border: 1px solid #9333ea;"></div>
+            <span>Tokens / Tensors</span>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('engineCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Color Palette
+        const colors = {
+            bg: '#1e293b',
+            panel: '#0f172a',
+            panelBorder: '#334155',
+            text: '#f8fafc',
+            textMuted: '#64748b',
+            io: '#38bdf8',
+            ioBorder: '#0ea5e9',
+            compute: '#fb923c',
+            computeBorder: '#ea580c',
+            memory: '#eab308',
+            memoryBorder: '#ca8a04',
+            token: '#a855f7',
+            tokenLight: '#d8b4fe'
+        };
+
+        // Layout Entities (Nodes)
+        const nodes = {
+            prompt: { x: 80, y: 130, w: 110, h: 60, label: "User Prompt", sub: '"Write code..."', type: 'io' },
+            tokenizer: { x: 240, y: 130, w: 120, h: 60, label: "1. Tokenizer", sub: "Text ➔ Token IDs", type: 'compute' },
+            scheduler: { x: 410, y: 130, w: 140, h: 70, label: "2. Continuous Scheduler", sub: "Iteration-Level Batching", type: 'compute' },
+            
+            prefill: { x: 620, y: 70, w: 150, h: 65, label: "3a. Prefill Phase", sub: "Parallel / Compute-Bound", type: 'compute' },
+            decode: { x: 620, y: 200, w: 150, h: 65, label: "3b. Decode Phase", sub: "Autoregressive / Memory-Bound", type: 'compute' },
+            
+            pagedAttn: { x: 400, y: 350, w: 160, h: 80, label: "PagedAttention Manager", sub: "Virtual Memory Allocation", type: 'memory' },
+            vram: { x: 400, y: 480, w: 160, h: 100, label: "Physical VRAM Blocks", sub: "Non-contiguous KV Cache Pages", type: 'memory' },
+            weights: { x: 840, y: 140, w: 130, h: 70, label: "Model Weights", sub: "FP8 / INT4 Quantized", type: 'io' },
+            
+            logits: { x: 840, y: 350, w: 120, h: 55, label: "Logit Processor", sub: "Next-token distribution", type: 'compute' },
+            sampler: { x: 635, y: 350, w: 120, h: 55, label: "4. Sampler", sub: "Top-P / Temp / Top-K", type: 'compute' },
+            detokenizer: { x: 635, y: 490, w: 120, h: 55, label: "5. Detokenizer", sub: "IDs ➔ Text Stream", type: 'compute' },
+            output: { x: 840, y: 490, w: 120, h: 55, label: "Streaming Output", sub: "Token emitted!", type: 'io' }
+        };
+
+        // Simulated Dynamic Particles / Data Tokens
+        let particles = [];
+        let systemStep = 0; // 0: Prefill, 1: Decode Loop
+        let activeDecodeTokens = 0;
+        const maxDecodeTokens = 8;
+        let pagedBlocks = Array(12).fill(0).map(() => Math.random() > 0.7 ? 1 : 0); // VRAM block states
+
+        // Initialize particles based on system execution state
+        function spawnTriggerParticles(type, startNode, endNode, count = 1, speed = 2, delay = 0) {
+            for(let i=0; i<count; i++) {
+                particles.push({
+                    x: startNode.x + startNode.w/2,
+                    y: startNode.y + startNode.h/2,
+                    startX: startNode.x + startNode.w/2,
+                    startY: startNode.y + startNode.h/2,
+                    endX: endNode.x + endNode.w/2,
+                    endY: endNode.y + endNode.h/2,
+                    progress: -(i * delay),
+                    speed: speed,
+                    type: type
+                });
+            }
+        }
+
+        // Initialize Engine Routine Automation Loop
+        function runEngineAutomation() {
+            if (particles.length === 0) {
+                if (systemStep === 0) {
+                    // Start of execution: prompt to tokenizer
+                    spawnTriggerParticles('token', nodes.prompt, nodes.tokenizer, 4, 2.5, 12);
+                    systemStep = 1;
+                } else if (systemStep === 1) {
+                    // Tokenizer to scheduler
+                    spawnTriggerParticles('token', nodes.tokenizer, nodes.scheduler, 4, 2.5, 10);
+                    systemStep = 2;
+                } else if (systemStep === 2) {
+                    // Scheduler schedules Prefill
+                    spawnTriggerParticles('tensor', nodes.scheduler, nodes.prefill, 1, 3, 0);
+                    systemStep = 3;
+                } else if (systemStep === 3) {
+                    // Prefill reads weights and populates KV cache concurrently
+                    spawnTriggerParticles('weight', nodes.weights, nodes.prefill, 2, 4, 8);
+                    spawnTriggerParticles('tensor', nodes.prefill, nodes.logits, 1, 3, 0);
+                    // Write to Paged Attention
+                    spawnTriggerParticles('kv', nodes.prefill, nodes.pagedAttn, 2, 2, 10);
+                    systemStep = 4;
+                } else if (systemStep === 4) {
+                    // Logits to sampler
+                    spawnTriggerParticles('tensor', nodes.logits, nodes.sampler, 1, 3, 0);
+                    systemStep = 5;
+                } else if (systemStep === 5) {
+                    // Sampler outputs first token to detokenizer, and feeds back to scheduler
+                    spawnTriggerParticles('token', nodes.sampler, nodes.detokenizer, 1, 2.5, 0);
+                    spawnTriggerParticles('token', nodes.sampler, nodes.scheduler, 1, 4, 0); // feedback loop
+                    systemStep = 6;
+                } else if (systemStep === 6) {
+                    // Detokenizer to Output interface
+                    spawnTriggerParticles('io', nodes.detokenizer, nodes.output, 1, 2, 0);
+                    activeDecodeTokens = 1;
+                    systemStep = 7; // Begin Decode Loop Iterations
+                } else if (systemStep === 7) {
+                    // Decode Loop Step: Scheduler routes single token step to Decode Core
+                    spawnTriggerParticles('token', nodes.scheduler, nodes.decode, 1, 3.5, 0);
+                    systemStep = 8;
+                } else if (systemStep === 8) {
+                    // Decode Core fetches weights (memory bottleneck!) and fetches historical cache blocks
+                    spawnTriggerParticles('weight', nodes.weights, nodes.decode, 1, 1.5, 0); // Slower visualization to reflect memory bound nature
+                    spawnTriggerParticles('kv', nodes.pagedAttn, nodes.decode, 1, 3, 0); 
+                    systemStep = 9;
+                } else if (systemStep === 9) {
+                    // Decode Core pushes to logits, and updates cache
+                    spawnTriggerParticles('tensor', nodes.decode, nodes.logits, 1, 3.5, 0);
+                    spawnTriggerParticles('kv', nodes.decode, nodes.pagedAttn, 1, 2, 0);
+                    systemStep = 10;
+                } else if (systemStep === 10) {
+                    // Logits to sampler
+                    spawnTriggerParticles('tensor', nodes.logits, nodes.sampler, 1, 3.5, 0);
+                    systemStep = 11;
+                } else if (systemStep === 11) {
+                    // Sampler outputs token to screen, feeds back to scheduler for next iteration
+                    spawnTriggerParticles('token', nodes.sampler, nodes.detokenizer, 1, 2.5, 0);
+                    spawnTriggerParticles('io', nodes.detokenizer, nodes.output, 1, 2, 0);
+                    
+                    activeDecodeTokens++;
+                    
+                    // Update randomized VRAM dynamic map to show memory allocation changes
+                    if(Math.random() > 0.4) {
+                        let emptyIndices = pagedBlocks.map((b,i) => b === 0 ? i : null).filter(v => v !== null);
+                        if(emptyIndices.length > 0) pagedBlocks[emptyIndices[Math.floor(Math.random() * emptyIndices.length)]] = 1;
+                    }
+
+                    if (activeDecodeTokens >= maxDecodeTokens) {
+                        // Reset entire cycle back to start prompt
+                        systemStep = 0;
+                        activeDecodeTokens = 0;
+                        pagedBlocks = Array(12).fill(0).map(() => Math.random() > 0.7 ? 1 : 0);
+                    } else {
+                        // Loop back to next decode token step
+                        systemStep = 7;
+                    }
+                }
+            }
+        }
+
+        // Draw Helper: Rounded Rectangles
+        function drawRoundRect(x, y, w, h, radius, fill, stroke) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + w - radius, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+            ctx.lineTo(x + w, y + h - radius);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+            ctx.lineTo(x + radius, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fillStyle = fill;
+            ctx.fill();
+            if (stroke) {
+                ctx.strokeStyle = stroke;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+
+        // Draw Helper: Connective Pipelines
+        function drawPipeline(start, end, label = "", active = false) {
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.strokeStyle = active ? colors.compute : colors.panelBorder;
+            ctx.lineWidth = active ? 2.5 : 1.5;
+            ctx.stroke();
+
+            if (label) {
+                ctx.fillStyle = colors.textMuted;
+                ctx.font = "10px monospace";
+                ctx.fillText(label, (start.x + end.x)/2 + 5, (start.y + end.y)/2 - 5);
+            }
+        }
+
+        // Main Rendering Loop
+        function draw() {
+            // Clear Frame
+            ctx.fillStyle = colors.bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Draw Architectural Boundary Boxes (Subgraphs)
+            // Frontend Boundary
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(210, 35, 360, 195);
+            ctx.fillStyle = colors.textMuted;
+            ctx.font = "bold 11px system-ui";
+            ctx.setLineDash([]);
+            ctx.fillText("ENGINE FRONTEND / REQUEST SCHEDULER", 225, 55);
+
+            // Execution Core Boundary
+            ctx.strokeStyle = '#475569';
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(595, 35, 390, 260);
+            ctx.fillText("COMPUTE CORE / GPU EXECUTION ENGINE", 610, 55);
+            ctx.setLineDash([]);
+
+            // 2. Draw Static Wiring Pipelines
+            // Forward pass pipelines
+            drawPipeline({x: nodes.prompt.x + nodes.prompt.w, y: nodes.prompt.y + nodes.prompt.h/2}, {x: nodes.tokenizer.x, y: nodes.tokenizer.y + nodes.tokenizer.h/2});
+            drawPipeline({x: nodes.tokenizer.x + nodes.tokenizer.w, y: nodes.tokenizer.y + nodes.tokenizer.h/2}, {x: nodes.scheduler.x, y: nodes.scheduler.y + nodes.scheduler.h/2});
+            
+            // Scheduler branches out to Prefill and Decode
+            drawPipeline({x: nodes.scheduler.x + nodes.scheduler.w, y: nodes.scheduler.y + 20}, {x: nodes.prefill.x, y: nodes.prefill.y + nodes.prefill.h/2}, "Parallel Tensor");
+            drawPipeline({x: nodes.scheduler.x + nodes.scheduler.w, y: nodes.scheduler.y + 50}, {x: nodes.decode.x, y: nodes.decode.y + nodes.decode.h/2}, "Single Token");
+
+            // Weights feeding both execution blocks
+            drawPipeline({x: nodes.weights.x + nodes.weights.w/2, y: nodes.weights.y}, {x: nodes.prefill.x + nodes.prefill.w, y: nodes.prefill.y + 20});
+            drawPipeline({x: nodes.weights.x, y: nodes.weights.y + nodes.weights.h/2}, {x: nodes.decode.x + nodes.decode.w, y: nodes.decode.y + 20}, "Weight Load");
+
+            // Core outputs merging into Logits
+            drawPipeline({x: nodes.prefill.x + nodes.prefill.w, y: nodes.prefill.y + nodes.prefill.h/2}, {x: nodes.logits.x, y: nodes.logits.y + 10});
+            drawPipeline({x: nodes.decode.x + nodes.decode.w, y: nodes.decode.y + nodes.decode.h/2}, {x: nodes.logits.x, y: nodes.logits.y + 30});
+
+            // Logits -> Sampler -> Detokenizer -> Output
+            drawPipeline({x: nodes.logits.x + nodes.logits.w/2, y: nodes.logits.y + nodes.logits.h}, {x: nodes.sampler.x + nodes.sampler.w, y: nodes.sampler.y + nodes.sampler.h/2});
+            drawPipeline({x: nodes.sampler.x + nodes.sampler.w/2, y: nodes.sampler.y + nodes.sampler.h}, {x: nodes.detokenizer.x + nodes.detokenizer.w/2, y: nodes.detokenizer.y});
+            drawPipeline({x: nodes.detokenizer.x + nodes.detokenizer.w, y: nodes.detokenizer.y + nodes.detokenizer.h/2}, {x: nodes.output.x, y: nodes.output.y + nodes.output.h/2});
+
+            // Memory Layer Pipelines
+            drawPipeline({x: nodes.scheduler.x + nodes.scheduler.w/2, y: nodes.scheduler.y + nodes.scheduler.h}, {x: nodes.pagedAttn.x + nodes.pagedAttn.w/2, y: nodes.pagedAttn.y}, "Page Lookups");
+            drawPipeline({x: nodes.pagedAttn.x + nodes.pagedAttn.w/2, y: nodes.pagedAttn.y + nodes.pagedAttn.h}, {x: nodes.vram.x + nodes.vram.w/2, y: nodes.vram.y});
+            
+            // KV Cache transactions
+            drawPipeline({x: nodes.prefill.x, y: nodes.prefill.y + nodes.prefill.h}, {x: nodes.pagedAttn.x + 100, y: nodes.pagedAttn.y}, "KV Write");
+            drawPipeline({x: nodes.decode.x, y: nodes.decode.y + nodes.decode.h}, {x: nodes.pagedAttn.x + 130, y: nodes.pagedAttn.y}, "KV Read/Write");
+
+            // Feedback loop from Sampler back to Scheduler
+            ctx.beginPath();
+            ctx.moveTo(nodes.sampler.x, nodes.sampler.y + nodes.sampler.h/2);
+            ctx.lineTo(310, nodes.sampler.y + nodes.sampler.h/2);
+            ctx.lineTo(310, nodes.scheduler.y + nodes.scheduler.h - 15);
+            ctx.lineTo(nodes.scheduler.x, nodes.scheduler.y + nodes.scheduler.h - 15);
+            ctx.strokeStyle = colors.token;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // 3. Render All Structural Nodes
+            for (let key in nodes) {
+                let n = nodes[key];
+                let strokeColor = colors.ioBorder;
+                let fillColor = colors.panel;
+                
+                if (n.type === 'compute') strokeColor = colors.computeBorder;
+                if (n.type === 'memory') strokeColor = colors.memoryBorder;
+
+                // Highlight active functional units depending on system state execution step
+                if (systemStep === 1 && key === 'tokenizer') fillColor = '#1e293b';
+                if (systemStep === 2 && key === 'scheduler') fillColor = '#1e293b';
+                if (systemStep === 3 && key === 'prefill') fillColor = '#2c1a10';
+                if (systemStep === 8 && key === 'decode') fillColor = '#2c1a10';
+                if (key === 'pagedAttn' || key === 'vram') strokeColor = colors.memoryBorder;
+
+                drawRoundRect(n.x, n.y, n.w, n.h, 6, fillColor, strokeColor);
+
+                // Meta Titles & Text Rendering Inside Nodes
+                ctx.fillStyle = colors.text;
+                ctx.font = "bold 12px system-ui";
+                ctx.fillText(n.label, n.x + 10, n.y + 24);
+                
+                ctx.fillStyle = colors.textMuted;
+                ctx.font = "10px monospace";
+                ctx.fillText(n.sub, n.x + 10, n.y + n.h - 14);
+            }
+
+            // Special UI Graphics: Virtual Memory Layout blocks inside Physical VRAM Node Container
+            let vramNode = nodes.vram;
+            let blockW = 22;
+            let blockH = 20;
+            let padding = 6;
+            for(let i=0; i<12; i++) {
+                let r = Math.floor(i / 4);
+                let c = i % 4;
+                let bx = vramNode.x + 20 + (c * (blockW + padding));
+                let by = vramNode.y + 32 + (r * (blockH + padding));
+                
+                ctx.fillStyle = pagedBlocks[i] === 1 ? colors.memory : '#334155';
+                ctx.fillRect(bx, by, blockW, blockH);
+                ctx.strokeStyle = colors.panel;
+                ctx.strokeRect(bx, by, blockW, blockH);
+            }
+
+            // 4. Update and Render Active System Flow Particles
+            runEngineAutomation();
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.progress += p.speed;
+
+                if (p.progress < 0) continue; // handle delay offset
+
+                // Interpolate Coordinates along vectors
+                let totalDist = Math.hypot(p.endX - p.startX, p.endY - p.startY);
+                let currentRatio = p.progress / totalDist;
+
+                if (currentRatio >= 1) {
+                    particles.splice(i, 1); // Delete completed vectors
+                    continue;
+                }
+
+                p.x = p.startX + (p.endX - p.startX) * currentRatio;
+                p.y = p.startY + (p.endY - p.startY) * currentRatio;
+
+                // Set Particle Visual Profiles according to classification
+                ctx.beginPath();
+                if (p.type === 'token') {
+                    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = colors.token;
+                    ctx.shadowColor = colors.tokenLight;
+                    ctx.shadowBlur = 4;
+                } else if (p.type === 'tensor') {
+                    ctx.rect(p.x - 6, p.y - 4, 12, 8);
+                    ctx.fillStyle = colors.compute;
+                    ctx.shadowColor = colors.compute;
+                    ctx.shadowBlur = 4;
+                } else if (p.type === 'weight') {
+                    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = colors.io;
+                    ctx.shadowColor = colors.io;
+                    ctx.shadowBlur = 2;
+                } else { // KV / Cache Pages
+                    ctx.rect(p.x - 4, p.y - 4, 8, 8);
+                    ctx.fillStyle = colors.memory;
+                    ctx.shadowColor = colors.memory;
+                    ctx.shadowBlur = 2;
+                }
+                ctx.fill();
+                ctx.shadowBlur = 0; // Reset canvas filter effects context immediately
+            }
+
+            // Core Hardware Bottleneck / Performance Metric Overlays
+            ctx.fillStyle = "#1e293b";
+            ctx.fillRect(20, 410, 240, 170);
+            ctx.strokeStyle = colors.panelBorder;
+            ctx.strokeRect(20, 410, 240, 170);
+
+            ctx.fillStyle = colors.text;
+            ctx.font = "bold 12px system-ui";
+            ctx.fillText("FIRST-PRINCIPLES METRICS", 35, 435);
+
+            ctx.font = "11px system-ui";
+            ctx.fillStyle = systemStep <= 6 ? colors.compute : colors.textMuted;
+	    ctx.fillText("● Prefill Status: ACTIVE (High FLOPs)", 35, 465);
+            
+            ctx.fillStyle = systemStep > 6 ? colors.memory : colors.textMuted;
+            ctx.fillText("● Decode Status: ACTIVE (Streaming)", 35, 490);
+            
+            ctx.fillStyle = colors.textMuted;
+            ctx.fillText(`  ↳ Gen Cycle / Token Index: ${activeDecodeTokens} / ${maxDecodeTokens}`, 35, 510);
+            
+            // Live compute bounded vs memory bounded context indicator
+            ctx.fillStyle = "#0f172a";
+            ctx.fillRect(35, 530, 210, 35);
+            ctx.fillStyle = systemStep <= 6 ? colors.compute : colors.memory;
+            ctx.font = "bold 10px monospace";
+            ctx.fillText(systemStep <= 6 ? "LIMIT: BOUND BY MATRIX COMPUTE" : "LIMIT: BOUND BY MEMORY BANDWIDTH", 42, 552);
+
+            requestAnimationFrame(draw);
+        }
+
+        // Run application viewport canvas loop initialization
+        draw();
+    </script>
+</body>
+</html>
