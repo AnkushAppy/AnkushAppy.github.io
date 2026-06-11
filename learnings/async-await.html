@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python async/await — Event Loop</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html {
+            width: 100%; min-height: 100%;
+            background-color: #0a0d12;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            font-family: "JetBrains Mono", "Courier New", Courier, monospace;
+            color: #8b95a8;
+            padding: 24px 16px;
+            overflow-x: auto;
+        }
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9);
+            border-radius: 16px;
+            border: 1px solid #1f2736;
+            max-width: 100%;
+        }
+        canvas { display: block; background: #070810; border-radius: 16px; max-width: 100%; height: auto; }
+        .panel-header {
+            position: absolute; font-size: 11px;
+            font-weight: bold; letter-spacing: 2px; text-transform: uppercase;
+            color: #516075;
+        }
+        .legend {
+            margin-top: 16px; display: flex; gap: 22px; font-size: 11px;
+            letter-spacing: 1px; flex-wrap: wrap; justify-content: center;
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .controls-panel {
+            margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;
+        }
+        .action-btn {
+            padding: 10px 18px; background: #12162b; border: 1px solid #2a315c;
+            color: #8f9bb3; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px;
+        }
+        .action-btn:hover { background: #1a1f3d; color: #fff; }
+        .action-btn.io { border-color: #1a3a5c; color: #4af; }
+        .action-btn.io:hover { background: #0a1a2a; color: #7ec8ff; }
+        .action-btn.cpu { border-color: #5c2020; color: #f56c6c; }
+        .action-btn.cpu:hover { background: #2a1010; color: #ff9d9d; }
+        .action-btn.bad { border-color: #5c3a10; color: #feca57; }
+        .action-btn.bad:hover { background: #2a1a08; color: #ffeaa7; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="fastapiCanvas"></canvas>
+        <div class="panel-header" style="top: 22px; left: 40px;">[ Uvicorn ASGI → FastAPI Application ]</div>
+        <div class="panel-header" style="top: 22px; right: 40px;">[ asyncio Event Loop + Process Pool ]</div>
+    </div>
+    <div class="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#009688"></span> FastAPI / Uvicorn</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#4af"></span> async def + await (I/O)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f56c6c"></span> CPU → run_in_executor</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#feca57"></span> Blocks event loop (anti-pattern)</div>
+    </div>
+    <div class="controls-panel">
+        <button class="action-btn io" id="addIoBtn">GET /users — await db.fetch()</button>
+        <button class="action-btn io" id="addHttpBtn">GET /feed — await httpx.get()</button>
+        <button class="action-btn cpu" id="addCpuBtn">POST /report — run_in_executor()</button>
+        <button class="action-btn bad" id="addBadBtn">BAD: time.sleep() in async def</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('fastapiCanvas');
+        const context = canvas.getContext('2d');
+
+        const WIDTH = 1100;
+        const HEIGHT = 580;
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+
+        const FASTAPI_COLOR = '#009688';
+        const FASTAPI_GLOW  = 'rgba(0, 150, 136, ';
+        const IO_COLOR = '#4af';
+        const IO_GLOW  = 'rgba(68, 170, 255, ';
+        const CPU_COLOR = '#f56c6c';
+        const CPU_GLOW  = 'rgba(245, 108, 108, ';
+        const BLOCK_COLOR = '#feca57';
+        const BLOCK_GLOW  = 'rgba(254, 202, 87, ';
+
+        const QUEUE_BOX  = { x: 35,  y: 130, w: 210, h: 150, label: 'HTTP Request Queue' };
+        const UVICORN_BOX = { x: 35, y: 310, w: 210, h: 70, label: 'Uvicorn', sub: 'ASGI server · :8000' };
+        const LOOP = { x: 420, y: 240, r: 72, label: 'asyncio Event Loop' };
+        const FASTAPI_BOX = { x: 300, y: 55, w: 240, h: 90, label: 'FastAPI App', sub: 'route dispatch' };
+        const POOL_BOX = { x: 720, y: 75, w: 250, h: 280, label: 'ProcessPoolExecutor' };
+        const CODE_BOX = { x: 35, y: 420, w: 500, h: 130 };
+
+        let loopAngle = 0;
+        let tasks = [];
+        let taskIdCounter = 1;
+        let loopBlocked = false;
+        let blockTimer = 0;
+        let coreStatus = [false, false, false, false];
+        let stats = { completed: 0, io: 0, cpu: 0, blocked: 0 };
+
+        const IO_TYPES = {
+            DB:   { label: 'DB',  route: 'GET /users',  code: 'await db.fetch(...)',  duration: 55, color: IO_COLOR, glow: IO_GLOW },
+            HTTP: { label: 'HTTP', route: 'GET /feed',   code: 'await client.get(...)', duration: 50, color: '#74b9ff', glow: 'rgba(116, 185, 255, ' },
+        };
+
+        class Task {
+            constructor(id, mode, ioSubtype) {
+                this.id = id;
+                this.mode = mode;
+                this.ioSubtype = ioSubtype;
+                this.x = QUEUE_BOX.x + 20;
+                this.y = QUEUE_BOX.y + 35 + Math.random() * (QUEUE_BOX.h - 70);
+                this.state = 'QUEUE';
+                this.assignedCore = -1;
+                this.workTimer = 0;
+
+                if (mode === 'IO') {
+                    const cfg = IO_TYPES[ioSubtype];
+                    this.color = cfg.color;
+                    this.glow = cfg.glow;
+                    this.route = cfg.route;
+                    this.codeHint = cfg.code;
+                    this.workDuration = cfg.duration;
+                    this.tag = cfg.label;
+                } else if (mode === 'HEAVY_CPU') {
+                    this.color = CPU_COLOR;
+                    this.glow = CPU_GLOW;
+                    this.route = 'POST /report';
+                    this.codeHint = 'await loop.run_in_executor(...)';
+                    this.workDuration = 160;
+                    this.tag = 'CPU';
+                } else {
+                    this.color = BLOCK_COLOR;
+                    this.glow = BLOCK_GLOW;
+                    this.route = 'GET /slow';
+                    this.codeHint = 'time.sleep(3)  # blocks loop!';
+                    this.workDuration = 120;
+                    this.tag = 'BLOCK';
+                }
+            }
+
+            update() {
+                if (loopBlocked && this.mode !== 'BLOCKS_LOOP') {
+                    if (this.state === 'LOOP_PROCESSING') return;
+                }
+
+                if (this.state === 'QUEUE') {
+                    const targetX = UVICORN_BOX.x + UVICORN_BOX.w + 30;
+                    if (this.x < targetX) this.x += 3;
+                    else this.state = 'UVICORN';
+                } else if (this.state === 'UVICORN') {
+                    const targetX = FASTAPI_BOX.x + FASTAPI_BOX.w / 2;
+                    const targetY = FASTAPI_BOX.y + FASTAPI_BOX.h;
+                    this.x += (targetX - this.x) * 0.1;
+                    this.y += (targetY - this.y) * 0.1;
+                    if (Math.abs(this.x - targetX) < 8 && Math.abs(this.y - targetY) < 8) {
+                        this.state = 'LOOP_PROCESSING';
+                    }
+                } else if (this.state === 'LOOP_PROCESSING') {
+                    this.x = LOOP.x + Math.cos(loopAngle + this.id) * (LOOP.r - 18);
+                    this.y = LOOP.y + Math.sin(loopAngle + this.id) * (LOOP.r - 18);
+
+                    if (this.mode === 'IO') {
+                        if (Math.random() < 0.1) {
+                            this.state = 'AWAIT_IO';
+                            this.assignedCore = 0;
+                        }
+                    } else if (this.mode === 'HEAVY_CPU') {
+                        let freeCore = -1;
+                        for (let i = 1; i <= 3; i++) {
+                            if (!coreStatus[i]) { freeCore = i; break; }
+                        }
+                        if (freeCore !== -1 && Math.random() < 0.08) {
+                            this.state = 'WORKER_PROCESSING';
+                            this.assignedCore = freeCore;
+                            coreStatus[freeCore] = true;
+                        }
+                    } else if (this.mode === 'BLOCKS_LOOP') {
+                        if (Math.random() < 0.06) {
+                            this.state = 'BLOCKING';
+                            loopBlocked = true;
+                            blockTimer = this.workDuration;
+                        }
+                    }
+                } else if (this.state === 'AWAIT_IO') {
+                    const targetX = LOOP.x + LOOP.r + 50;
+                    const targetY = LOOP.y - 30;
+                    this.x += (targetX - this.x) * 0.14;
+                    this.y += (targetY - this.y) * 0.14;
+                    if (Math.abs(this.x - targetX) < 10) {
+                        this.workTimer++;
+                        if (this.workTimer >= this.workDuration) {
+                            this.state = 'RETURNING';
+                        }
+                    }
+                } else if (this.state === 'BLOCKING') {
+                    this.x = LOOP.x;
+                    this.y = LOOP.y;
+                    this.workTimer++;
+                    if (this.workTimer >= this.workDuration) {
+                        loopBlocked = false;
+                        blockTimer = 0;
+                        stats.blocked++;
+                        this.state = 'RETURNING';
+                    }
+                } else if (this.state === 'WORKER_PROCESSING') {
+                    const targetX = POOL_BOX.x + POOL_BOX.w / 2;
+                    const targetY = POOL_BOX.y + 55 + this.assignedCore * 52;
+                    this.x += (targetX - this.x) * 0.12;
+                    this.y += (targetY - this.y) * 0.12;
+                    if (Math.abs(this.x - targetX) < 12) {
+                        this.workTimer++;
+                        if (this.workTimer >= this.workDuration) {
+                            coreStatus[this.assignedCore] = false;
+                            this.state = 'RETURNING';
+                        }
+                    }
+                } else if (this.state === 'RETURNING') {
+                    const targetX = LOOP.x;
+                    const targetY = LOOP.y + LOOP.r + 40;
+                    const dx = targetX - this.x;
+                    const dy = targetY - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > 8) {
+                        this.x += (dx / dist) * 5;
+                        this.y += (dy / dist) * 5;
+                    } else {
+                        this.state = 'COMPLETED';
+                        stats.completed++;
+                        if (this.mode === 'IO') stats.io++;
+                        else if (this.mode === 'HEAVY_CPU') stats.cpu++;
+                    }
+                } else if (this.state === 'COMPLETED') {
+                    this.x += 6;
+                    this.y += 2;
+                }
+            }
+
+            draw() {
+                const r = this.state === 'BLOCKING' ? 18 : 13;
+                context.beginPath();
+                context.arc(this.x, this.y, r, 0, Math.PI * 2);
+                context.fillStyle = this.color;
+                context.fill();
+                if (this.state === 'BLOCKING') {
+                    context.beginPath();
+                    context.arc(this.x, this.y, 26, 0, Math.PI * 2);
+                    context.fillStyle = `${BLOCK_GLOW}0.25)`;
+                    context.fill();
+                }
+                context.strokeStyle = '#fff';
+                context.lineWidth = 1.5;
+                context.stroke();
+
+                context.fillStyle = '#070810';
+                context.font = 'bold 8px Courier New';
+                context.textAlign = 'center';
+                context.textBaseline = 'middle';
+                context.fillText(`${this.tag}${this.id}`, this.x, this.y);
+
+                if (this.state === 'WORKER_PROCESSING' || this.state === 'AWAIT_IO' || this.state === 'BLOCKING') {
+                    const prog = this.workTimer / this.workDuration;
+                    context.beginPath();
+                    context.arc(this.x, this.y, r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog);
+                    context.strokeStyle = this.color;
+                    context.lineWidth = 2;
+                    context.stroke();
+                }
+            }
+        }
+
+        function spawnTask(mode, ioSubtype) {
+            if (loopBlocked && mode !== 'BLOCKS_LOOP') return;
+            tasks.push(new Task(taskIdCounter++, mode, ioSubtype));
+        }
+
+        document.getElementById('addIoBtn').addEventListener('click', () => spawnTask('IO', 'DB'));
+        document.getElementById('addHttpBtn').addEventListener('click', () => spawnTask('IO', 'HTTP'));
+        document.getElementById('addCpuBtn').addEventListener('click', () => spawnTask('HEAVY_CPU'));
+        document.getElementById('addBadBtn').addEventListener('click', () => spawnTask('BLOCKS_LOOP'));
+
+        function drawBox(box, color, lines) {
+            context.strokeStyle = `${color}55`;
+            context.lineWidth = 1;
+            context.strokeRect(box.x, box.y, box.w, box.h);
+            context.fillStyle = `${color}08`;
+            context.fillRect(box.x, box.y, box.w, box.h);
+            context.font = 'bold 11px Courier New';
+            context.fillStyle = color;
+            context.textAlign = 'left';
+            context.fillText(box.label, box.x + 12, box.y + 18);
+            if (box.sub) {
+                context.font = '9px Courier New';
+                context.fillStyle = 'rgba(255,255,255,0.35)';
+                context.fillText(box.sub, box.x + 12, box.y + 32);
+            }
+            if (lines) {
+                context.font = '9px Courier New';
+                lines.forEach((line, i) => {
+                    context.fillStyle = 'rgba(255,255,255,0.3)';
+                    context.fillText(line, box.x + 12, box.y + 46 + i * 13);
+                });
+            }
+        }
+
+        function drawCodePanel() {
+            const active = tasks.find(t => ['LOOP_PROCESSING', 'AWAIT_IO', 'WORKER_PROCESSING', 'BLOCKING'].includes(t.state));
+            const lines = active ? [
+                `@app.${active.route.startsWith('GET') ? 'get' : 'post'}("${active.route.split(' ')[1]}")`,
+                `async def handler():`,
+                `    ${active.codeHint}`,
+            ] : [
+                '# FastAPI runs on a single asyncio event loop',
+                'async def → await I/O, loop stays free',
+                'CPU-bound → run_in_executor(pool, fn)',
+                '# Never: time.sleep() / heavy sync in async def',
+            ];
+
+            context.strokeStyle = 'rgba(255,255,255,0.08)';
+            context.strokeRect(CODE_BOX.x, CODE_BOX.y, CODE_BOX.w, CODE_BOX.h);
+            context.fillStyle = 'rgba(255,255,255,0.02)';
+            context.fillRect(CODE_BOX.x, CODE_BOX.y, CODE_BOX.w, CODE_BOX.h);
+            context.font = 'bold 10px Courier New';
+            context.fillStyle = FASTAPI_COLOR;
+            context.textAlign = 'left';
+            context.fillText('[ live handler ]', CODE_BOX.x + 12, CODE_BOX.y + 16);
+            context.font = '11px Courier New';
+            lines.forEach((line, i) => {
+                let c = 'rgba(200,220,255,0.75)';
+                if (line.includes('await')) c = IO_COLOR;
+                if (line.includes('run_in_executor')) c = CPU_COLOR;
+                if (line.includes('time.sleep') || line.includes('Never')) c = BLOCK_COLOR;
+                if (line.startsWith('@app')) c = FASTAPI_COLOR;
+                if (line.startsWith('#')) c = 'rgba(255,255,255,0.3)';
+                context.fillStyle = c;
+                context.fillText(line, CODE_BOX.x + 12, CODE_BOX.y + 36 + i * 18);
+            });
+        }
+
+        function drawEventLoop() {
+            const busy = coreStatus[0] || loopBlocked;
+            context.beginPath();
+            context.arc(LOOP.x, LOOP.y, LOOP.r, 0, Math.PI * 2);
+            context.strokeStyle = loopBlocked ? BLOCK_COLOR : busy ? IO_COLOR : `${FASTAPI_GLOW}0.6)`;
+            context.lineWidth = loopBlocked ? 5 : 3;
+            context.stroke();
+
+            if (loopBlocked) {
+                context.beginPath();
+                context.arc(LOOP.x, LOOP.y, LOOP.r + 8, 0, Math.PI * 2);
+                context.strokeStyle = `${BLOCK_GLOW}0.4)`;
+                context.lineWidth = 2;
+                context.setLineDash([4, 6]);
+                context.stroke();
+                context.setLineDash([]);
+            }
+
+            context.fillStyle = '#fff';
+            context.font = 'bold 10px Courier New';
+            context.textAlign = 'center';
+            context.fillText(LOOP.label, LOOP.x, LOOP.y - 6);
+            context.font = '8px Courier New';
+            context.fillStyle = loopBlocked ? BLOCK_COLOR : 'rgba(255,255,255,0.4)';
+            context.fillText(loopBlocked ? 'FROZEN — sync block!' : 'single thread · cooperative', LOOP.x, LOOP.y + 10);
+
+            context.beginPath();
+            context.arc(LOOP.x, LOOP.y, 6, 0, Math.PI * 2);
+            context.fillStyle = loopBlocked ? BLOCK_COLOR : FASTAPI_COLOR;
+            context.fill();
+        }
+
+        function drawProcessPool() {
+            drawBox(POOL_BOX, CPU_COLOR, [
+                'from concurrent.futures import ProcessPoolExecutor',
+                'pool = ProcessPoolExecutor(max_workers=3)',
+            ]);
+
+            context.fillStyle = 'rgba(68, 170, 255, 0.08)';
+            context.fillRect(POOL_BOX.x + 14, POOL_BOX.y + 52, POOL_BOX.w - 28, 36);
+            context.font = '9px Courier New';
+            context.fillStyle = IO_COLOR;
+            context.textAlign = 'center';
+            context.fillText('async I/O stays on event loop (await)', POOL_BOX.x + POOL_BOX.w / 2, POOL_BOX.y + 74);
+
+            for (let i = 1; i <= 3; i++) {
+                const wy = POOL_BOX.y + 52 + i * 52;
+                context.fillStyle = coreStatus[i] ? 'rgba(245,108,108,0.15)' : 'rgba(255,255,255,0.03)';
+                context.fillRect(POOL_BOX.x + 14, wy, POOL_BOX.w - 28, 40);
+                context.strokeStyle = coreStatus[i] ? `${CPU_GLOW}0.5)` : 'rgba(255,255,255,0.1)';
+                context.strokeRect(POOL_BOX.x + 14, wy, POOL_BOX.w - 28, 40);
+                context.font = '9px Courier New';
+                context.fillStyle = coreStatus[i] ? '#ff9d9d' : 'rgba(255,255,255,0.35)';
+                context.textAlign = 'center';
+                context.fillText(`Worker ${i}  ${coreStatus[i] ? '[crunching]' : '[idle]'}`, POOL_BOX.x + POOL_BOX.w / 2, wy + 24);
+            }
+        }
+
+        function drawCpuCores() {
+            const area = { x: 560, y: 420, w: 500, h: 130 };
+            context.strokeStyle = 'rgba(255,255,255,0.08)';
+            context.strokeRect(area.x, area.y, area.w, area.h);
+            context.font = 'bold 10px Courier New';
+            context.fillStyle = 'rgba(255,255,255,0.35)';
+            context.textAlign = 'left';
+            context.fillText('CPU CORES', area.x + 12, area.y + 16);
+
+            for (let i = 0; i < 4; i++) {
+                const cx = area.x + 16 + i * 118;
+                const cy = area.y + 30;
+                const busy = coreStatus[i] || (i === 0 && loopBlocked);
+                context.fillStyle = busy ? 'rgba(245,108,108,0.12)' : 'rgba(0,150,136,0.08)';
+                context.fillRect(cx, cy, 105, 85);
+                context.strokeStyle = busy ? CPU_COLOR : FASTAPI_COLOR;
+                context.strokeRect(cx, cy, 105, 85);
+                context.font = 'bold 10px Courier New';
+                context.fillStyle = '#fff';
+                context.textAlign = 'center';
+                context.fillText(`Core ${i}`, cx + 52, cy + 22);
+                context.font = '9px Courier New';
+                context.fillStyle = busy ? '#ff9d9d' : '#67c23a';
+                context.fillText(busy ? 'BUSY' : 'idle', cx + 52, cy + 42);
+                context.fillStyle = 'rgba(255,255,255,0.3)';
+                context.fillText(i === 0 ? 'asyncio loop' : 'proc worker', cx + 52, cy + 60);
+            }
+        }
+
+        function drawConnections() {
+            context.beginPath();
+            context.strokeStyle = `${FASTAPI_GLOW}0.2)`;
+            context.setLineDash([4, 8]);
+            context.moveTo(QUEUE_BOX.x + QUEUE_BOX.w, QUEUE_BOX.y + QUEUE_BOX.h / 2);
+            context.lineTo(UVICORN_BOX.x, UVICORN_BOX.y + UVICORN_BOX.h / 2);
+            context.lineTo(FASTAPI_BOX.x + FASTAPI_BOX.w / 2, FASTAPI_BOX.y);
+            context.lineTo(LOOP.x - LOOP.r, LOOP.y);
+            context.stroke();
+            context.moveTo(LOOP.x + LOOP.r, LOOP.y);
+            context.lineTo(POOL_BOX.x, POOL_BOX.y + POOL_BOX.h / 2);
+            context.stroke();
+            context.setLineDash([]);
+        }
+
+        function drawStats() {
+            const pending = tasks.filter(t => t.state !== 'COMPLETED').length;
+            context.font = '10px Courier New';
+            context.fillStyle = 'rgba(255,255,255,0.35)';
+            context.textAlign = 'left';
+            context.fillText(
+                `pending: ${pending}  ·  done: ${stats.completed} (io: ${stats.io}  cpu: ${stats.cpu})  ·  loop blocks: ${stats.blocked}`,
+                35, HEIGHT - 14
+            );
+            if (loopBlocked) {
+                context.fillStyle = BLOCK_COLOR;
+                context.fillText('⚠ Event loop blocked — all async routes stalled until sync work finishes', 35, HEIGHT - 32);
+            }
+        }
+
+        function renderEngine() {
+            context.fillStyle = '#070810';
+            context.fillRect(0, 0, WIDTH, HEIGHT);
+
+            loopAngle += loopBlocked ? 0.005 : 0.05;
+            coreStatus[0] = tasks.some(t =>
+                t.state === 'LOOP_PROCESSING' || t.state === 'RETURNING' || t.state === 'BLOCKING'
+            );
+
+            drawConnections();
+            drawBox(QUEUE_BOX, 'rgba(255,255,255,0.5)', ['Incoming HTTP requests', 'wait for handler slot']);
+            drawBox(UVICORN_BOX, FASTAPI_COLOR, null);
+            drawBox(FASTAPI_BOX, FASTAPI_COLOR, [
+                'async def route handlers',
+                'BackgroundTasks · Depends()',
+            ]);
+            drawEventLoop();
+            drawProcessPool();
+            drawCpuCores();
+            drawCodePanel();
+
+            tasks = tasks.filter(t => t.x < WIDTH + 40 && t.y < HEIGHT + 40);
+            tasks.forEach(t => { t.update(); t.draw(); });
+
+            drawStats();
+            requestAnimationFrame(renderEngine);
+        }
+
+        renderEngine();
+    </script>
+</body>
+</html>

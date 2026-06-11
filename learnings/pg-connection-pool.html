@@ -33,6 +33,18 @@
         }
         .legend-item { display: flex; align-items: center; gap: 8px; }
         .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .controls-panel {
+            margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;
+        }
+        .action-btn {
+            padding: 10px 20px; background: #12162b; border: 1px solid #2a315c;
+            color: #8f9bb3; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+        }
+        .action-btn:hover { background: #1a1f3d; color: #fff; }
+        .action-btn.danger { border-color: #5c2020; color: #ff6b6b; }
+        .action-btn.danger:hover { background: #2a1010; color: #ff3838; }
+        .action-btn.safe { border-color: #1a4a3a; color: #00d2d3; }
+        .action-btn.safe:hover { background: #0a2a22; color: #7efff5; }
     </style>
 </head>
 <body>
@@ -48,6 +60,11 @@
         <div class="legend-item"><span class="legend-dot" style="background:#feca57"></span> App Server 2</div>
         <div class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span> App Server 3</div>
         <div class="legend-item"><span class="legend-dot" style="background:#00d2d3"></span> PostgreSQL</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#feca57"></span> Elevated Load</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ff3838"></span> Pool Exhausted</div>
+    </div>
+    <div class="controls-panel">
+        <button class="action-btn danger" onclick="triggerTrafficSpike()">Simulate Traffic Spike</button>
     </div>
 
     <script>
@@ -72,6 +89,13 @@
         const SERVER_GLOW   = ['rgba(255, 159, 67, ', 'rgba(254, 202, 87, ', 'rgba(255, 107, 107, '];
         const PG_COLOR = '#00d2d3';
         const PG_GLOW  = 'rgba(0, 210, 211, ';
+        const FAIL_COLOR = '#ff3838';
+        const FAIL_GLOW  = 'rgba(255, 56, 56, ';
+        const WARN_COLOR = '#feca57';
+        const RECOVER_COLOR = '#00d2d3';
+
+        const THRESHOLDS = { DEGRADED: 0.65, CRITICAL: 0.88 };
+        const SPIKE_DURATION = 260;
 
         const LB_BOX = { x: 28, y: 195, w: 108, h: 190, label: 'Load Balancer', host: 'api.gateway:443' };
 
@@ -87,10 +111,20 @@
         const pgPoolStates = new Array(PG_POOL_SIZE).fill(0);
         const inflightSlots = new Set();
         const networkPackets = [];
+        const lbQueue = [];
 
         let roundRobinIdx = 0;
         let lbTotalRouted = 0;
         let lbActiveRoutes = 0;
+        let lbDropped = 0;
+        let frameCount = 0;
+        let trafficSpikeActive = false;
+        let spikeFramesRemaining = 0;
+        let recovering = false;
+        let perfMultiplier = 1;
+        let systemState = 'HEALTHY';
+        let avgLatencyMs = 42;
+        let p99LatencyMs = 68;
 
         function slotKey(serverId, localSlot) {
             return `${serverId}:${localSlot}`;
@@ -98,6 +132,71 @@
 
         function globalSlotIndex(serverId, localSlot) {
             return serverId * POOL_PER_SERVER + localSlot;
+        }
+
+        function getPoolUtilization() {
+            const leased = serverPoolStates.flat().filter(s => s > 0).length + inflightSlots.size;
+            return leased / PG_POOL_SIZE;
+        }
+
+        function tickSpikeAndRecovery() {
+            if (trafficSpikeActive) {
+                spikeFramesRemaining--;
+                if (spikeFramesRemaining <= 0) {
+                    trafficSpikeActive = false;
+                    recovering = true;
+                }
+            }
+            if (recovering) {
+                const util = getPoolUtilization();
+                if (util < 0.45 && lbQueue.length === 0 && avgLatencyMs < 90) {
+                    recovering = false;
+                }
+            }
+        }
+
+        function updateSystemState() {
+            tickSpikeAndRecovery();
+            const util = getPoolUtilization();
+            const queuePressure = lbQueue.length / 6;
+
+            if (recovering) {
+                systemState = 'RECOVERING';
+            } else if (util >= THRESHOLDS.CRITICAL || queuePressure >= 1) {
+                systemState = 'CRITICAL';
+            } else if (util >= THRESHOLDS.DEGRADED || queuePressure >= 0.35) {
+                systemState = 'DEGRADED';
+            } else {
+                systemState = 'HEALTHY';
+            }
+
+            const pressure = Math.min(1, Math.max(util, lbQueue.length / 8));
+            if (recovering) {
+                perfMultiplier = 0.6 + (1 - pressure) * 0.4;
+            } else if (systemState === 'CRITICAL') {
+                perfMultiplier = 0.4 + (1 - pressure) * 0.2;
+            } else if (systemState === 'DEGRADED') {
+                perfMultiplier = 0.7 + (1 - pressure) * 0.2;
+            } else {
+                perfMultiplier = 1;
+            }
+
+            const targetAvg = recovering ? 55 + util * 80
+                : systemState === 'CRITICAL' ? 320 + lbQueue.length * 25
+                : systemState === 'DEGRADED' ? 95 + util * 180
+                : 42;
+            const decay = recovering ? 0.08 : 0.04;
+            avgLatencyMs += (targetAvg - avgLatencyMs) * decay;
+            p99LatencyMs += ((targetAvg * 1.8) - p99LatencyMs) * decay;
+        }
+
+        function isBlinkOn() {
+            return Math.floor(frameCount / 18) % 2 === 0;
+        }
+
+        function getLatencyMultiplier() {
+            const util = getPoolUtilization();
+            return 1 + util * 2.5 + (trafficSpikeActive ? 1.5 : 0) + lbQueue.length * 0.08;
         }
 
         function getLbIngress() {
@@ -132,6 +231,14 @@
             };
         }
 
+        function triggerTrafficSpike() {
+            if (trafficSpikeActive || recovering) return;
+            trafficSpikeActive = true;
+            spikeFramesRemaining = SPIKE_DURATION;
+            recovering = false;
+            for (let i = 0; i < 4; i++) attemptSpawn(true);
+        }
+
         class NetworkPacket {
             constructor(serverId, localSlot) {
                 this.serverId = serverId;
@@ -150,7 +257,8 @@
                 this.progress = 0;
                 this.speed = 0.06;
                 this.phase = 'INGRESS';
-                this.dbTimer = Math.floor(Math.random() * 35) + 18;
+                this.dbTimer = Math.floor((Math.random() * 35 + 18) * getLatencyMultiplier());
+                this.dbAccum = 0;
                 this._from = { ...this.lbIngress };
                 this._to = { ...this.lbCenter };
 
@@ -172,7 +280,7 @@
             }
 
             _lerpSegment() {
-                this.progress += this.speed;
+                this.progress += this.speed * perfMultiplier;
                 this.x = this._from.x + (this._to.x - this._from.x) * this.progress;
                 this.y = this._from.y + (this._to.y - this._from.y) * this.progress;
                 return this.progress >= 1;
@@ -213,7 +321,11 @@
                         pgPoolStates[this.globalSlot] = 2;
                     }
                 } else if (this.phase === 'DB_PROCESSING') {
-                    this.dbTimer--;
+                    this.dbAccum += perfMultiplier;
+                    while (this.dbAccum >= 1) {
+                        this.dbTimer--;
+                        this.dbAccum -= 1;
+                    }
                     if (this.dbTimer <= 0) {
                         this.phase = 'PONG';
                         this.progress = 0;
@@ -259,10 +371,82 @@
             }
         }
 
+        function updateLbQueue() {
+            const ingress = getLbIngress();
+            for (let i = lbQueue.length - 1; i >= 0; i--) {
+                const req = lbQueue[i];
+                req.wait++;
+                req.x += 0.15 * perfMultiplier;
+                req.y = ingress.y + Math.sin(req.wait * 0.08 + i) * 4;
+
+                if (req.wait >= req.maxWait) {
+                    lbQueue.splice(i, 1);
+                    lbDropped++;
+                    continue;
+                }
+
+                const pick = pickServerAndSlot();
+                if (pick) {
+                    lbQueue.splice(i, 1);
+                    lbTotalRouted++;
+                    networkPackets.push(new NetworkPacket(pick.serverId, pick.localSlot));
+                }
+            }
+        }
+
+        function drawLbQueue() {
+            lbQueue.forEach((req, i) => {
+                const blink = isBlinkOn();
+                const x = Math.min(req.x, getLbCenter().x - 10);
+                context.beginPath();
+                context.arc(x, req.y - i * 3, blink ? 5 : 4, 0, Math.PI * 2);
+                context.fillStyle = blink ? FAIL_COLOR : 'rgba(255, 56, 56, 0.45)';
+                context.fill();
+                if (blink) {
+                    context.beginPath();
+                    context.arc(x, req.y - i * 3, 12, 0, Math.PI * 2);
+                    context.fillStyle = 'rgba(255, 56, 56, 0.2)';
+                    context.fill();
+                }
+            });
+        }
+
+        function drawAlertBanner() {
+            if (systemState === 'HEALTHY') return;
+
+            let label, color, metrics;
+            if (systemState === 'RECOVERING') {
+                label = '↻ RECOVERING — spike ended · draining pools · latency normalizing';
+                color = RECOVER_COLOR;
+                metrics = `avg latency: ${Math.round(avgLatencyMs)}ms  ·  throughput: ${(perfMultiplier * 100).toFixed(0)}%  ·  in-flight: ${networkPackets.length}`;
+            } else if (systemState === 'CRITICAL') {
+                const blink = isBlinkOn();
+                label = '⚠ POOL EXHAUSTED — high latency · requests queuing';
+                color = blink ? FAIL_COLOR : 'rgba(255, 80, 80, 0.7)';
+                metrics = `avg: ${Math.round(avgLatencyMs)}ms  ·  queued: ${lbQueue.length}  ·  dropped: ${lbDropped}`;
+            } else {
+                label = '⚠ ELEVATED LOAD — slower response times';
+                color = WARN_COLOR;
+                metrics = `avg latency: ${Math.round(avgLatencyMs)}ms  ·  pool use: ${(getPoolUtilization() * 100).toFixed(0)}%`;
+            }
+
+            context.font = 'bold 11px Courier New';
+            context.fillStyle = color;
+            context.fillText(label, WIDTH / 2 - context.measureText(label).width / 2, 18);
+
+            context.font = '10px Courier New';
+            context.fillStyle = systemState === 'RECOVERING' ? 'rgba(0, 210, 211, 0.7)' : 'rgba(255, 255, 255, 0.4)';
+            context.fillText(metrics, WIDTH / 2 - context.measureText(metrics).width / 2, 34);
+        }
+
         function drawLoadBalancer() {
             const { x, y, w, h, label, host } = LB_BOX;
+            const borderColor = systemState === 'CRITICAL' && isBlinkOn() ? FAIL_COLOR
+                : systemState === 'RECOVERING' ? 'rgba(0, 210, 211, 0.4)'
+                : systemState === 'DEGRADED' ? 'rgba(254, 202, 87, 0.35)'
+                : 'rgba(162, 155, 254, 0.35)';
 
-            context.strokeStyle = 'rgba(162, 155, 254, 0.35)';
+            context.strokeStyle = borderColor;
             context.lineWidth = 1;
             context.strokeRect(x, y, w, h);
             context.fillStyle = 'rgba(162, 155, 254, 0.04)';
@@ -288,11 +472,14 @@
             context.fillStyle = LB_COLOR;
             context.fillText(`Routed: ${lbTotalRouted}`, x + 12, statsY);
             context.fillText(`In-flight: ${lbActiveRoutes}`, x + 12, statsY - 22);
+            if (lbQueue.length > 0) {
+                context.fillStyle = systemState === 'CRITICAL' && isBlinkOn() ? FAIL_COLOR : WARN_COLOR;
+                context.fillText(`Queue: ${lbQueue.length}`, x + 12, statsY - 44);
+            }
 
-            // Client ingress arrow
             const midY = y + h / 2;
             context.beginPath();
-            context.strokeStyle = 'rgba(162, 155, 254, 0.2)';
+            context.strokeStyle = trafficSpikeActive ? 'rgba(254, 202, 87, 0.35)' : 'rgba(162, 155, 254, 0.2)';
             context.lineWidth = 1;
             context.setLineDash([4, 6]);
             context.moveTo(x - 55, midY);
@@ -300,14 +487,17 @@
             context.stroke();
             context.setLineDash([]);
             context.font = '9px Courier New';
-            context.fillStyle = 'rgba(255, 255, 255, 0.25)';
-            context.fillText('Clients', x - 52, midY - 8);
+            context.fillStyle = trafficSpikeActive ? WARN_COLOR : 'rgba(255, 255, 255, 0.25)';
+            const clientLabel = trafficSpikeActive
+                ? `Spike ${Math.ceil(spikeFramesRemaining / 60)}s`
+                : recovering ? 'Recovering' : 'Clients';
+            context.fillText(clientLabel, x - 52, midY - 8);
 
-            // Fan-out to app servers
             const lbOutX = x + w;
             const lbCenter = getLbCenter();
             context.beginPath();
             context.strokeStyle = 'rgba(162, 155, 254, 0.1)';
+            context.lineWidth = 1;
             context.setLineDash([4, 8]);
             SERVERS.forEach(s => {
                 const targetY = s.box.y + s.box.h / 2;
@@ -321,11 +511,13 @@
         function drawServerBox(server) {
             const { box, label, host, id } = server;
             const color = SERVER_COLORS[id];
+            const saturated = serverPoolStates[id].filter(s => s > 0).length >= POOL_PER_SERVER;
             const active = serverPoolStates[id].filter(s => s > 0).length;
             const pending = [...inflightSlots].filter(k => k.startsWith(`${id}:`)).length;
             const leasedLabel = `Leased: ${active}/${POOL_PER_SERVER}`;
+            const showFail = systemState === 'CRITICAL' && saturated;
 
-            context.strokeStyle = `${color}33`;
+            context.strokeStyle = showFail && isBlinkOn() ? FAIL_COLOR : `${color}33`;
             context.lineWidth = 1;
             context.strokeRect(box.x, box.y, box.w, box.h);
             context.fillStyle = 'rgba(255, 255, 255, 0.03)';
@@ -339,6 +531,10 @@
             context.fillStyle = 'rgba(255, 255, 255, 0.35)';
             context.fillText(host, box.x + 14, box.y + 38);
             context.fillText(`pool: ${POOL_PER_SERVER} connections`, box.x + 14, box.y + 52);
+            if (saturated && systemState === 'CRITICAL') {
+                context.fillStyle = isBlinkOn() ? FAIL_COLOR : 'rgba(255, 100, 100, 0.7)';
+                context.fillText('POOL FULL', box.x + 200, box.y + 38);
+            }
             if (pending > 0) {
                 context.fillStyle = `${color}88`;
                 context.fillText(`incoming: ${pending} from LB`, box.x + 160, box.y + 52);
@@ -361,15 +557,19 @@
             context.fillStyle = 'rgba(255, 255, 255, 0.06)';
             context.fillRect(barX, statsY - 8, barW, 6);
             if (fillW > 0) {
-                context.fillStyle = `${color}99`;
+                context.fillStyle = saturated && systemState === 'CRITICAL' ? `${FAIL_COLOR}99` : `${color}99`;
                 context.fillRect(barX, statsY - 8, fillW, 6);
             }
         }
 
         function drawPgBox() {
             const { x, y, w, h } = PG_BOX;
+            const util = getPoolUtilization();
+            const stressed = systemState === 'CRITICAL' && util >= THRESHOLDS.CRITICAL;
 
-            context.strokeStyle = 'rgba(0, 210, 211, 0.25)';
+            context.strokeStyle = stressed && isBlinkOn() ? FAIL_COLOR
+                : systemState === 'RECOVERING' ? 'rgba(0, 210, 211, 0.35)'
+                : 'rgba(0, 210, 211, 0.25)';
             context.lineWidth = 1;
             context.strokeRect(x, y, w, h);
             context.fillStyle = 'rgba(0, 210, 211, 0.03)';
@@ -383,6 +583,13 @@
             context.fillStyle = 'rgba(255, 255, 255, 0.35)';
             context.fillText('postgres://db.internal:5432/production', x + 14, y + 38);
             context.fillText(`max_connections: ${PG_POOL_SIZE}  (shared across all app servers)`, x + 14, y + 52);
+            if (stressed) {
+                context.fillStyle = 'rgba(255, 100, 100, 0.7)';
+                context.fillText('query backlog building', x + 14, y + 66);
+            } else if (systemState === 'RECOVERING') {
+                context.fillStyle = 'rgba(0, 210, 211, 0.6)';
+                context.fillText('draining backlog · latency falling', x + 14, y + 66);
+            }
 
             const hubX = PG_BOX.x - 30;
             const hubY = PG_BOX.y + PG_BOX.h / 2;
@@ -402,6 +609,9 @@
         }
 
         function drawMatrixDots() {
+            const critical = systemState === 'CRITICAL';
+            const blink = isBlinkOn();
+
             for (let x = spacing; x < WIDTH; x += spacing) {
                 for (let y = spacing; y < HEIGHT; y += spacing) {
                     let dotColor = 'rgba(26, 30, 50, 0.35)';
@@ -420,10 +630,10 @@
                                 const state = serverPoolStates[s][idx];
                                 const baseColor = SERVER_COLORS[s];
                                 if (state > 0) {
-                                    dotColor = baseColor;
+                                    dotColor = critical && blink ? FAIL_COLOR : baseColor;
+                                    glowColor = critical ? FAIL_GLOW : SERVER_GLOW[s];
                                     radius = dotRadius + 1.5;
                                     glow = 0.2;
-                                    glowColor = SERVER_GLOW[s];
                                 } else {
                                     dotColor = `${baseColor}1f`;
                                 }
@@ -440,10 +650,10 @@
                             if (idx < PG_POOL_SIZE) {
                                 const state = pgPoolStates[idx];
                                 if (state === 2) {
-                                    dotColor = PG_COLOR;
+                                    dotColor = critical && blink ? FAIL_COLOR : PG_COLOR;
                                     radius = dotRadius + 2;
                                     glow = 0.4;
-                                    glowColor = PG_GLOW;
+                                    glowColor = critical ? FAIL_GLOW : PG_GLOW;
                                 } else if (state > 0) {
                                     dotColor = 'rgba(0, 210, 211, 0.5)';
                                     radius = dotRadius + 1;
@@ -504,9 +714,23 @@
             return null;
         }
 
-        function spawnQuery() {
+        function attemptSpawn(force) {
+            if (recovering && !force) return;
+            const rate = trafficSpikeActive ? 0.22 : 0.10;
+            if (!force && Math.random() >= rate) return;
+
             const pick = pickServerAndSlot();
-            if (!pick) return;
+            if (!pick) {
+                if (lbQueue.length >= 6) return;
+                const ingress = getLbIngress();
+                lbQueue.push({
+                    x: ingress.x - 20 - lbQueue.length * 6,
+                    y: ingress.y,
+                    wait: 0,
+                    maxWait: 100 + Math.floor(Math.random() * 60),
+                });
+                return;
+            }
             lbTotalRouted++;
             networkPackets.push(new NetworkPacket(pick.serverId, pick.localSlot));
         }
@@ -517,21 +741,29 @@
             const executing = pgPoolStates.filter(s => s === 2).length;
 
             context.font = '12px Courier New';
-            context.fillStyle = PG_COLOR;
+            context.fillStyle = systemState === 'RECOVERING' ? RECOVER_COLOR
+                : systemState === 'CRITICAL' ? FAIL_COLOR : PG_COLOR;
             context.fillText(
-                `PG Active Connections: ${totalActive}/${PG_POOL_SIZE}  |  Queries Executing: ${executing}`,
+                `PG Active Connections: ${totalActive}/${PG_POOL_SIZE}  |  Queries Executing: ${executing}  |  Throughput: ${(perfMultiplier * 100).toFixed(0)}%`,
                 PG_BOX.x, y
             );
 
             context.font = '10px Courier New';
             context.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            context.fillText(
-                'Clients → Load Balancer → App Servers → PostgreSQL → response returns through the same path',
-                28, HEIGHT - 10
-            );
+            const statusLine = systemState === 'HEALTHY'
+                ? 'Clients → Load Balancer → App Servers → PostgreSQL → response returns through the same path'
+                : systemState === 'RECOVERING'
+                ? 'Spike subsided — in-flight requests completing, pools freeing up, latency returning to normal'
+                : systemState === 'CRITICAL'
+                ? 'Pools near capacity — packets moving slower, some requests waiting at the load balancer'
+                : 'Elevated traffic — response times increasing';
+            context.fillText(statusLine, 28, HEIGHT - 10);
         }
 
         function drawScene() {
+            frameCount++;
+            updateSystemState();
+
             context.fillStyle = '#070810';
             context.fillRect(0, 0, WIDTH, HEIGHT);
 
@@ -540,8 +772,10 @@
             SERVERS.forEach(drawServerBox);
             drawMatrixDots();
             drawActiveWires();
+            drawLbQueue();
 
-            if (Math.random() < 0.10) spawnQuery();
+            attemptSpawn(false);
+            updateLbQueue();
 
             for (let i = networkPackets.length - 1; i >= 0; i--) {
                 if (!networkPackets[i].update()) {
@@ -551,6 +785,7 @@
                 }
             }
 
+            drawAlertBanner();
             drawStats();
             requestAnimationFrame(drawScene);
         }
